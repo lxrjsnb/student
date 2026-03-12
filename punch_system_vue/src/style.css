@@ -1,79 +1,136 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e5e7eb;
+  --primary: #2563eb;
+  --primary-ink: #ffffff;
+  --accent: #7c3aed;
+  --accent2: #06b6d4;
+  --accent3: #f97316;
+  --success-bg: #ecfdf5;
+  --success-ink: #065f46;
+  --danger-bg: #fef2f2;
+  --danger-ink: #991b1b;
+  --warn-bg: #fffbeb;
+  --warn-ink: #92400e;
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --shadow-strong: 0 22px 60px rgba(15, 23, 42, 0.14);
+
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+    Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
+  color: var(--text);
+  background: var(--bg);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+button,
+input {
+  font: inherit;
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
 }
 
-.card {
-  padding: 2em;
+a {
+  color: inherit;
 }
 
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  min-height: 100vh;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+@keyframes bgShift {
+  0% {
+    background-position: 0% 50%;
   }
-  a:hover {
-    color: #747bff;
+  50% {
+    background-position: 100% 50%;
   }
-  button {
-    background-color: #f9f9f9;
+  100% {
+    background-position: 0% 50%;
   }
+}
+
+@keyframes floaty {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(22px, -18px, 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes glowPulse {
+  0% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0.25;
+  }
+}
+
+.bgFX {
+  position: fixed;
+  inset: -80px;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(1200px 600px at 10% 20%, rgba(124, 58, 237, 0.22), transparent 60%),
+    radial-gradient(900px 500px at 90% 10%, rgba(6, 182, 212, 0.18), transparent 55%),
+    radial-gradient(900px 520px at 40% 90%, rgba(249, 115, 22, 0.16), transparent 60%),
+    linear-gradient(120deg, rgba(37, 99, 235, 0.14), rgba(124, 58, 237, 0.14), rgba(6, 182, 212, 0.12));
+  background-size: 200% 200%;
+  animation: bgShift 14s ease-in-out infinite;
+  filter: saturate(1.05);
+}
+
+.bgFX::before,
+.bgFX::after {
+  content: "";
+  position: absolute;
+  width: 680px;
+  height: 680px;
+  border-radius: 999px;
+  filter: blur(60px);
+  opacity: 0.35;
+  animation: floaty 10s ease-in-out infinite, glowPulse 6s ease-in-out infinite;
+}
+
+.bgFX::before {
+  left: 6%;
+  top: 18%;
+  background: radial-gradient(circle at 30% 30%, rgba(124, 58, 237, 0.55), transparent 55%),
+    radial-gradient(circle at 70% 70%, rgba(37, 99, 235, 0.48), transparent 60%);
+}
+
+.bgFX::after {
+  right: 8%;
+  bottom: 8%;
+  width: 560px;
+  height: 560px;
+  background: radial-gradient(circle at 30% 30%, rgba(6, 182, 212, 0.55), transparent 55%),
+    radial-gradient(circle at 70% 70%, rgba(249, 115, 22, 0.48), transparent 60%);
+  animation-delay: -2.2s;
 }

@@ -1,0 +1,30 @@
+import axios from 'axios'
+
+export const API_BASE_URL =
+  import.meta.env?.VITE_API_BASE_URL?.trim() || 'http://127.0.0.1:5000'
+
+export const api = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+  validateStatus: () => true
+})
+
+export async function login({ username, password }) {
+  const res = await api.post('/login', { username, password })
+  return res.data
+}
+
+export async function register({ username, password }) {
+  const res = await api.post('/register', { username, password })
+  return res.data
+}
+
+export async function punch({ userId }) {
+  const res = await api.post('/punch', { user_id: userId })
+  return res.data
+}
+
+export async function getRecords({ userId }) {
+  const res = await api.get(`/records/${userId}`)
+  return res.data
+}
