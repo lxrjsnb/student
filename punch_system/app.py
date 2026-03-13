@@ -62,6 +62,12 @@ def login():
     username = data.get('username')
     password = data.get('password')
 
+    if not username or not password:
+        return jsonify({'code': 400, 'msg': '用户名和密码不能为空'}), 400
+
+    if username == ADMIN_CREDENTIALS['username'] and password == ADMIN_CREDENTIALS['password']:
+        return jsonify({'code': 200, 'msg': '登录成功', 'user_id': 0, 'username': username, 'score': 0, 'is_admin': True})
+
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM users WHERE username = %s AND password = %s', (username, password))
@@ -70,7 +76,7 @@ def login():
     conn.close()
 
     if user:
-        return jsonify({'code': 200, 'msg': '登录成功', 'user_id': user['id'], 'username': user['username'], 'score': user.get('score', 0)})
+        return jsonify({'code': 200, 'msg': '登录成功', 'user_id': user['id'], 'username': user['username'], 'score': user.get('score', 0), 'is_admin': False})
     else:
         return jsonify({'code': 401, 'msg': '用户名或密码错误'}), 401
 

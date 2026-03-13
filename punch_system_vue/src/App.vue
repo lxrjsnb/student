@@ -1,176 +1,368 @@
 <template>
   <div class="bgFX" aria-hidden="true"></div>
 
-  <AppHeader
-    v-if="view !== 'adminLogin' && view !== 'adminPanel'"
-    :user="currentUser"
-    :now-text="nowText"
-    :view="view"
-    :disabled="authLoading || !currentUser"
-    @logout="logout"
-    @goHome="goHome"
-    @goProfile="goProfile"
-    @goAdmin="goAdminLogin"
-  />
-
-  <main class="page">
-    <AuthCard
-      v-if="!currentUser && view !== 'adminLogin' && view !== 'adminPanel'"
-      :mode="authMode"
-      :loading="authLoading"
-      :message="authMessage"
-      :message-type="authMessageType"
-      :api-base-url="apiBaseUrl"
-      :default-username="rememberedUsername"
-      @switchMode="switchMode"
-      @auth="handleAuth"
-      @goAdmin="goAdminLogin"
-    />
-
-    <AdminLogin
-      v-if="view === 'adminLogin'"
-      :loading="adminLoading"
-      :message="adminMessage"
-      :message-type="adminMessageType"
-      @login="handleAdminLogin"
-      @goHome="goHome"
-    />
-
-    <AdminPanel
-      v-if="view === 'adminPanel'"
-      :token="adminToken"
-      @logout="adminLogout"
-    />
-
-    <ProfileCard
-      v-else-if="view === 'profile'"
-      :user="currentUser"
-      :today-record="todayRecord"
-      :latest="latestRecord"
-      :total="records.length"
-      :preview="records.slice(0, 5)"
-      :records-loaded="recordsLoaded"
-      @goHome="goHome"
-      @goRecords="openRecordsModal"
-      @logout="logout"
-    />
-
-    <div v-else-if="view === 'home' && currentUser" class="dash">
-      <section class="card punch" :class="{ 'card--pulse': pulsePunch }">
-        <div class="card__head">
-          <div>
-            <h2 class="card__title">签到打卡</h2>
-            <p class="card__sub">每次签到获得0.5分，间隔10秒可再次签到。</p>
-          </div>
-          <div class="headActions">
-            <button class="btn btn--ghost" type="button" :disabled="recordsLoading" @click="refreshRecords">
-              {{ recordsLoading ? '刷新中…' : '同步记录' }}
-            </button>
-            <button class="btn btn--iconGlass" type="button" :disabled="recordsLoading" @click="openRecordsModal">
-              <ClockIcon />
-              <span>记录</span>
-            </button>
+  <div class="app-container">
+    <aside v-if="view !== 'adminLogin' && view !== 'adminPanel'" class="sidebar">
+      <div class="sidebar__header">
+        <div class="sidebar__logo">
+          <span class="logo-icon">🏫</span>
+          <div class="logo-text">
+            <h1 class="sidebar__title">智慧校园</h1>
+            <p class="sidebar__subtitle">考勤管理系统</p>
           </div>
         </div>
-
-        <div class="status">
-          <div class="status__item">
-            <div class="status__k">当前账号</div>
-            <div class="status__v">{{ currentUser.username }}（ID: {{ currentUser.id }}）</div>
-          </div>
-          <div class="status__item">
-            <div class="status__k">当前分数</div>
-            <div class="status__v score">{{ userScore.toFixed(1) }}</div>
-          </div>
-          <div class="status__item">
-            <div class="status__k">今日签到次数</div>
-            <div class="status__v">{{ records.length }} 次</div>
-          </div>
-        </div>
-
-        <button class="btn btn--primary btn--big" type="button" :disabled="punchDisabled" @click="punchNow">
-          {{ cooldownRemaining > 0 ? `冷却中 (${cooldownRemaining}s)` : (punchLoading ? '处理中…' : '立即签到') }}
+      </div>
+      <nav class="sidebar__nav">
+        <button
+          v-if="currentUser"
+          class="nav-item"
+          :class="{ active: view === 'home' }"
+          @click="goHome"
+        >
+          <span class="nav-item__icon">🏠</span>
+          <span class="nav-item__text">工作台</span>
         </button>
-        <div v-if="punchMessage" class="alert" :class="`alert--${punchMessageType}`">
-          {{ punchMessage }}
+        <button
+          v-if="currentUser"
+          class="nav-item"
+          :class="{ active: view === 'profile' }"
+          @click="goProfile"
+        >
+          <span class="nav-item__icon">👤</span>
+          <span class="nav-item__text">个人中心</span>
+        </button>
+        <button
+          v-if="currentUser"
+          class="nav-item"
+          @click="openRecordsModal"
+        >
+          <span class="nav-item__icon">📋</span>
+          <span class="nav-item__text">考勤记录</span>
+        </button>
+        <button
+          v-if="currentUser"
+          class="nav-item"
+          :class="{ active: view === 'overview' }"
+          @click="goOverview"
+        >
+          <span class="nav-item__icon">📊</span>
+          <span class="nav-item__text">概览</span>
+        </button>
+        <div class="nav-divider" v-if="currentUser"></div>
+        <button
+          v-if="currentUser"
+          class="nav-item nav-item--logout"
+          @click="logout"
+        >
+          <span class="nav-item__icon">🚪</span>
+          <span class="nav-item__text">退出登录</span>
+        </button>
+        <button
+          v-if="!currentUser"
+          class="nav-item"
+          @click="goAdminLogin"
+        >
+          <span class="nav-item__icon">🔐</span>
+          <span class="nav-item__text">管理员登录</span>
+        </button>
+      </nav>
+      <div class="sidebar__footer">
+        <div class="footer-info">
+          <p class="footer-text">© 2024 智慧校园</p>
+          <p class="footer-text">版本 v1.0.0</p>
+        </div>
+      </div>
+    </aside>
+
+    <main class="page">
+      <div v-if="currentUser && view !== 'adminLogin' && view !== 'adminPanel'" class="top-bar">
+        <div class="top-bar__left">
+          <div class="user-info">
+            <div class="user-avatar">
+              <span class="avatar-text">{{ currentUser.username.charAt(0).toUpperCase() }}</span>
+            </div>
+            <div class="user-details">
+              <p class="user-name">{{ currentUser.username }}</p>
+              <p class="user-id">ID: {{ currentUser.id }}</p>
+            </div>
+          </div>
+        </div>
+        <div class="top-bar__center">
+          <div class="info-bar">
+            <div class="info-item">
+              <span class="info-icon">📅</span>
+              <span class="info-label">日期</span>
+              <span class="info-value">{{ currentDate }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-icon">⏰</span>
+              <span class="info-label">时间</span>
+              <span class="info-value">{{ currentTime }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-icon">🌤️</span>
+              <span class="info-label">天气</span>
+              <span class="info-value">晴</span>
+            </div>
+          </div>
+        </div>
+        <div class="top-bar__right">
+          <div class="status-indicator">
+            <span class="status-dot status-dot--online"></span>
+            <span class="status-text">在线</span>
+          </div>
+        </div>
+      </div>
+
+      <AuthCard
+        v-if="!currentUser && view !== 'adminLogin' && view !== 'adminPanel'"
+        :mode="authMode"
+        :loading="authLoading"
+        :message="authMessage"
+        :message-type="authMessageType"
+        :api-base-url="apiBaseUrl"
+        :default-username="rememberedUsername"
+        @switchMode="switchMode"
+        @auth="handleAuth"
+        @goAdmin="goAdminLogin"
+      />
+
+      <AdminLogin
+        v-if="view === 'adminLogin'"
+        :loading="adminLoading"
+        :message="adminMessage"
+        :message-type="adminMessageType"
+        @login="handleAdminLogin"
+        @goHome="goHome"
+      />
+
+      <AdminPanel
+        v-if="view === 'adminPanel'"
+        :token="adminToken"
+        @logout="adminLogout"
+      />
+
+      <ProfileCard
+        v-else-if="view === 'profile'"
+        :user="currentUser"
+        :today-record="todayRecord"
+        :latest="latestRecord"
+        :total="records.length"
+        :preview="records.slice(0, 5)"
+        :records-loaded="recordsLoaded"
+        @goHome="goHome"
+        @goRecords="openRecordsModal"
+        @logout="logout"
+      />
+
+      <Overview
+        v-else-if="view === 'overview' && currentUser"
+        :user="currentUser"
+        :records="records"
+        @goHome="goHome"
+      />
+
+      <div v-else-if="view === 'home' && currentUser" class="dashboard">
+        <div class="dashboard__header">
+          <h2 class="dashboard__title">工作台</h2>
+          <p class="dashboard__subtitle">欢迎使用智慧校园考勤管理系统</p>
         </div>
 
-        <div class="tips">
-          <div class="tips__k">签到规则</div>
-          <ul class="tips__list">
-            <li>每次签到获得0.5分</li>
-            <li>签到间隔为10秒</li>
-            <li>每日可多次签到，无次数限制</li>
-            <li>签到时间以服务器时间为准</li>
-          </ul>
+        <div class="dashboard__stats">
+          <div class="stat-card">
+            <div class="stat-icon stat-icon--primary">📊</div>
+            <div class="stat-content">
+              <p class="stat-label">今日签到</p>
+              <p class="stat-value">{{ records.length }} 次</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon--success">⭐</div>
+            <div class="stat-content">
+              <p class="stat-label">当前积分</p>
+              <p class="stat-value">{{ userScore.toFixed(1) }} 分</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon--warning">📈</div>
+            <div class="stat-content">
+              <p class="stat-label">本月签到</p>
+              <p class="stat-value">{{ records.length }} 次</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon--info">🎯</div>
+            <div class="stat-content">
+              <p class="stat-label">连续签到</p>
+              <p class="stat-value">{{ records.length > 0 ? 1 : 0 }} 天</p>
+            </div>
+          </div>
         </div>
-      </section>
 
-      <section class="card side">
-        <div class="side__title">快捷入口</div>
-        <div class="side__sub">点击查看弹窗记录，或进入个人页。</div>
-        <div class="side__btns">
-          <button class="btn btn--primary" type="button" @click="openRecordsModal">查看打卡记录</button>
-          <button class="btn btn--ghost" type="button" @click="goProfile">进入个人信息</button>
+        <div class="dashboard__main">
+          <div class="main-section">
+            <div class="section-card">
+              <div class="card-header">
+                <h3 class="card-title">📝 考勤签到</h3>
+                <p class="card-subtitle">每次签到获得0.5分，间隔10秒可再次签到</p>
+              </div>
+              <div class="card-body">
+                <div class="punch-status">
+                  <div class="status-item">
+                    <span class="status-label">当前账号</span>
+                    <span class="status-value">{{ currentUser.username }}</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">当前分数</span>
+                    <span class="status-value score">{{ userScore.toFixed(1) }}</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">今日签到</span>
+                    <span class="status-value">{{ records.length }} 次</span>
+                  </div>
+                </div>
+                <button class="punch-button" :class="{ 'punch-button--disabled': punchDisabled }" @click="punchNow">
+                  <span class="punch-icon">👆</span>
+                  <span class="punch-text">
+                    {{ cooldownRemaining > 0 ? `冷却中 (${cooldownRemaining}s)` : (punchLoading ? '处理中…' : '立即签到') }}
+                  </span>
+                </button>
+                <div v-if="punchMessage" class="punch-message" :class="`punch-message--${punchMessageType}`">
+                  {{ punchMessage }}
+                </div>
+              </div>
+            </div>
+
+            <div class="section-card">
+              <div class="card-header">
+                <h3 class="card-title">📢 系统公告</h3>
+              </div>
+              <div class="card-body">
+                <div class="notice-list">
+                  <div class="notice-item">
+                    <div class="notice-icon">📢</div>
+                    <div class="notice-content">
+                      <p class="notice-title">欢迎使用智慧校园考勤系统</p>
+                      <p class="notice-time">2024-01-01</p>
+                    </div>
+                  </div>
+                  <div class="notice-item">
+                    <div class="notice-icon">📢</div>
+                    <div class="notice-content">
+                      <p class="notice-title">签到规则：每次签到获得0.5分</p>
+                      <p class="notice-time">2024-01-01</p>
+                    </div>
+                  </div>
+                  <div class="notice-item">
+                    <div class="notice-icon">📢</div>
+                    <div class="notice-content">
+                      <p class="notice-title">系统已升级至v1.0.0版本</p>
+                      <p class="notice-time">2024-01-01</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="side-section">
+            <div class="section-card">
+              <div class="card-header">
+                <h3 class="card-title">⚡ 快捷操作</h3>
+              </div>
+              <div class="card-body">
+                <div class="quick-actions">
+                  <button class="quick-action" @click="refreshRecords" :disabled="recordsLoading">
+                    <span class="quick-icon">🔄</span>
+                    <span class="quick-text">{{ recordsLoading ? '刷新中…' : '同步记录' }}</span>
+                  </button>
+                  <button class="quick-action" @click="openRecordsModal">
+                    <span class="quick-icon">📋</span>
+                    <span class="quick-text">查看记录</span>
+                  </button>
+                  <button class="quick-action" @click="goProfile">
+                    <span class="quick-icon">👤</span>
+                    <span class="quick-text">个人中心</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-card">
+              <div class="card-header">
+                <h3 class="card-title">📊 数据统计</h3>
+              </div>
+              <div class="card-body">
+                <div class="data-list">
+                  <div class="data-item">
+                    <span class="data-icon">⏰</span>
+                    <div class="data-content">
+                      <p class="data-label">当前时间</p>
+                      <p class="data-value">{{ nowText }}</p>
+                    </div>
+                  </div>
+                  <div class="data-item">
+                    <span class="data-icon">📊</span>
+                    <div class="data-content">
+                      <p class="data-label">签到次数</p>
+                      <p class="data-value">{{ records.length }} 次</p>
+                    </div>
+                  </div>
+                  <div class="data-item">
+                    <span class="data-icon">⭐</span>
+                    <div class="data-content">
+                      <p class="data-label">当前分数</p>
+                      <p class="data-value">{{ userScore.toFixed(1) }} 分</p>
+                    </div>
+                  </div>
+                  <div class="data-item" v-if="latestRecord">
+                    <span class="data-icon">🕐</span>
+                    <div class="data-content">
+                      <p class="data-label">上次签到</p>
+                      <p class="data-value">{{ formatDateTime(latestRecord.punch_time) }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </section>
-    </div>
-  </main>
-
-  <ModalShell
-    :open="recordsModalOpen"
-    title="我的打卡记录"
-    subtitle="支持筛选与刷新；点击遮罩或按 ESC 关闭。"
-    @close="recordsModalOpen = false"
-  >
-    <RecordsTable
-      :records="filteredRecords"
-      :records-loaded="recordsLoaded"
-      :loading="recordsLoading"
-      :filter-start="filterStart"
-      :filter-end="filterEnd"
-      @refresh="refreshRecords"
-      @update:filterStart="setFilterStart"
-      @update:filterEnd="setFilterEnd"
-      @clearFilters="clearFilters"
-    />
-  </ModalShell>
+      </div>
+    </main>
+  </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import AppHeader from './components/AppHeader.vue'
+import { login, register, punch, getRecords } from './lib/api'
 import AuthCard from './components/AuthCard.vue'
-import ProfileCard from './components/ProfileCard.vue'
-import RecordsTable from './components/RecordsTable.vue'
-import ModalShell from './components/ModalShell.vue'
-import ClockIcon from './components/ClockIcon.vue'
 import AdminLogin from './components/AdminLogin.vue'
 import AdminPanel from './components/AdminPanel.vue'
-import { API_BASE_URL, getRecords, login, punch, register, adminLogin } from './lib/api'
-import { formatDateTime, isSameYmd, ymd } from './lib/time'
+import ProfileCard from './components/ProfileCard.vue'
+import ClockIcon from './components/ClockIcon.vue'
+import Overview from './components/Overview.vue'
 
-const apiBaseUrl = API_BASE_URL
+const STORAGE_KEY_USER = 'punch_user'
+const STORAGE_KEY_USERNAME = 'punch_username'
+const STORAGE_KEY_ADMIN_TOKEN = 'punch_admin_token'
 
-const STORAGE_KEY_USER = 'punch.user'
-const STORAGE_KEY_USERNAME = 'punch.username'
-const STORAGE_KEY_ADMIN_TOKEN = 'punch.admin.token'
+const apiBaseUrl = import.meta.env?.VITE_API_BASE_URL?.trim() || 'http://127.0.0.1:5000'
 
 const now = ref(new Date())
-const nowText = computed(() => formatDateTime(now.value))
-let timer = null
+const nowText = computed(() => now.value.toLocaleString('zh-CN', { hour12: false }))
+const currentDate = computed(() => now.value.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }))
+const currentTime = computed(() => now.value.toLocaleTimeString('zh-CN', { hour12: false }))
 
-const authMode = ref('login') // login | register
-const authLoading = ref(false)
+const authMode = ref('login')
 const authMessage = ref('')
 const authMessageType = ref('info')
+const authLoading = ref(false)
 const rememberedUsername = ref(localStorage.getItem(STORAGE_KEY_USERNAME) || '')
 
 const currentUser = ref(loadUserFromStorage())
-const view = ref('home') // home | profile | adminLogin | adminPanel
+const view = ref('home')
 
 const pulsePunch = ref(false)
-const recordsModalOpen = ref(false)
 
 const punchLoading = ref(false)
 const punchMessage = ref('')
@@ -198,13 +390,31 @@ const punchDisabled = computed(() => punchLoading.value || cooldownRemaining.val
 const filteredRecords = computed(() => {
   const start = filterStart.value
   const end = filterEnd.value
-  const startOk = (d) => (start ? ymd(d) >= start : true)
-  const endOk = (d) => (end ? ymd(d) <= end : true)
+  if (!start && !end) return records.value
 
-  return records.value.filter((r) => {
-    return startOk(r.punchAt) && endOk(r.punchAt)
-  })
+  const startOk = start ? (r) => r.punchAt >= new Date(start) : () => true
+  const endOk = end ? (r) => r.punchAt <= new Date(end + ' 23:59:59') : () => true
+  return records.value.filter(r => startOk(r) && endOk(r))
 })
+
+const todayRecord = computed(() => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return records.value.find(r => r.punchAt >= today)
+})
+
+function formatDateTime(timeStr) {
+  const d = new Date(timeStr)
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+}
 
 function loadUserFromStorage() {
   try {
@@ -235,16 +445,14 @@ function goProfile() {
   view.value = 'profile'
 }
 
+function goOverview() {
+  view.value = 'overview'
+}
+
 function openRecordsModal() {
   if (!currentUser.value) return
   view.value = 'home'
-  recordsModalOpen.value = true
   if (!recordsLoaded.value && !recordsLoading.value) refreshRecords()
-}
-
-function clearFilters() {
-  filterStart.value = ''
-  filterEnd.value = ''
 }
 
 function setFilterStart(value) {
@@ -286,54 +494,8 @@ function logout() {
   localStorage.removeItem(STORAGE_KEY_USER)
 }
 
-function adminLogout() {
-  adminToken.value = ''
-  view.value = 'home'
-  localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
-}
-
-async function handleAdminLogin(payload) {
-  adminMessage.value = ''
-  adminMessageType.value = 'info'
-
-  const username = payload.username?.trim()
-  const password = payload.password ?? ''
-  if (!username || !password) {
-    adminMessage.value = '用户名和密码不能为空。'
-    adminMessageType.value = 'error'
-    return
-  }
-
-  adminLoading.value = true
-  try {
-    const data = await adminLogin({ username, password })
-    if (data.code === 200) {
-      adminToken.value = data.token
-      localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, data.token)
-      currentUser.value = null
-      localStorage.removeItem(STORAGE_KEY_USER)
-      view.value = 'adminPanel'
-      adminMessage.value = ''
-      return
-    }
-    adminMessage.value = data.msg || '登录失败。'
-    adminMessageType.value = 'error'
-  } catch (err) {
-    adminMessage.value = `请求失败：${err?.message || '未知错误'}。请确认后端已启动：${apiBaseUrl}`
-    adminMessageType.value = 'error'
-  } finally {
-    adminLoading.value = false
-  }
-}
-
 function goAdminLogin() {
-  currentUser.value = null
-  localStorage.removeItem(STORAGE_KEY_USER)
-  if (adminToken.value) {
-    view.value = 'adminPanel'
-  } else {
-    view.value = 'adminLogin'
-  }
+  view.value = 'adminLogin'
 }
 
 async function handleAuth(payload) {
@@ -475,6 +637,47 @@ async function punchNow() {
   }
 }
 
+async function handleAdminLogin(payload) {
+  adminMessage.value = ''
+  adminMessageType.value = 'info'
+
+  const username = payload.username?.trim()
+  const password = payload.password ?? ''
+  if (!username || !password) {
+    adminMessage.value = '用户名和密码不能为空。'
+    adminMessageType.value = 'error'
+    return
+  }
+
+  adminLoading.value = true
+  try {
+    const data = await login({ username, password })
+    if (data.code === 200 && username === 'admin') {
+      adminToken.value = 'admin_token'
+      localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
+      currentUser.value = null
+      localStorage.removeItem(STORAGE_KEY_USER)
+      view.value = 'adminPanel'
+      adminMessage.value = ''
+      return
+    }
+    adminMessage.value = '管理员账号或密码错误。'
+    adminMessageType.value = 'error'
+  } catch (err) {
+    adminMessage.value = `请求失败：${err?.message || '未知错误'}。请确认后端已启动：${apiBaseUrl}`
+    adminMessageType.value = 'error'
+  } finally {
+    adminLoading.value = false
+  }
+}
+
+function adminLogout() {
+  adminToken.value = ''
+  view.value = 'home'
+  localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
+}
+
+let timer = null
 let cooldownTimer = null
 
 onMounted(() => {
@@ -498,267 +701,714 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.app-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 260px;
+  background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 100%);
+  backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 100;
+}
+
+.sidebar__header {
+  padding: 24px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar__logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  font-size: 32px;
+}
+
+.logo-text {
+  flex: 1;
+}
+
+.sidebar__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: white;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.sidebar__subtitle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 2px 0 0 0;
+}
+
+.sidebar__nav {
+  flex: 1;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.nav-item.active {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-weight: 600;
+}
+
+.nav-item--logout {
+  margin-top: auto;
+  color: rgba(255, 107, 107, 0.9);
+}
+
+.nav-item--logout:hover {
+  background: rgba(255, 107, 107, 0.2);
+  color: rgba(255, 107, 107, 1);
+}
+
+.nav-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 8px 0;
+}
+
+.nav-item__icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.nav-item__text {
+  flex: 1;
+}
+
+.sidebar__footer {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.footer-info {
+  text-align: center;
+}
+
+.footer-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 2px 0;
+}
+
 .page {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 18px 20px 32px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
 }
 
-.dash {
+.top-bar {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.top-bar__left,
+.top-bar__center,
+.top-bar__right {
+  display: flex;
+  align-items: center;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-text {
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.user-id {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+}
+
+.info-bar {
+  display: flex;
+  gap: 32px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-icon {
+  font-size: 18px;
+}
+
+.info-label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.info-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.status-text {
+  font-size: 13px;
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.dashboard {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.dashboard__header {
+  margin-bottom: 24px;
+}
+
+.dashboard__title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 8px;
+}
+
+.dashboard__subtitle {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+.dashboard__stats {
   display: grid;
-  grid-template-columns: 1fr 1.4fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  align-items: start;
+  margin-bottom: 24px;
 }
 
-@media (max-width: 980px) {
-  .dash {
+@media (max-width: 1200px) {
+  .dashboard__stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard__stats {
     grid-template-columns: 1fr;
   }
 }
 
-.card {
-  background: rgba(255, 255, 255, 0.76);
-  border: 1px solid rgba(229, 231, 235, 0.9);
-  border-radius: 16px;
-  box-shadow: var(--shadow-strong);
-  backdrop-filter: blur(10px);
-  padding: 18px;
-}
-
-.card--pulse {
-  position: relative;
-}
-
-.card--pulse::after {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.35), rgba(124, 58, 237, 0.3), rgba(6, 182, 212, 0.25));
-  filter: blur(12px);
-  opacity: 0.65;
-  z-index: -1;
-  animation: glowPulse 0.9s ease-in-out 1;
-}
-
-.card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.card__title {
-  margin: 0;
-  font-size: 16px;
-  letter-spacing: 0.2px;
-}
-
-.card__sub {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.btn {
-  border: 1px solid transparent;
+.stat-card {
+  background: white;
   border-radius: 12px;
-  padding: 10px 12px;
-  font-weight: 800;
-  background: var(--primary);
-  color: var(--primary-ink);
-  transition: transform 0.16s ease, filter 0.16s ease;
-}
-
-.btn:hover {
-  transform: translateY(-1px);
-  filter: saturate(1.1);
-}
-
-.btn:active {
-  transform: translateY(0);
-}
-
-.btn--ghost {
-  background: rgba(255, 255, 255, 0.55);
-  border-color: rgba(229, 231, 235, 0.9);
-  color: var(--text);
-}
-
-.btn--ghost:hover {
-  border-color: rgba(203, 213, 225, 0.95);
-}
-
-.btn--primary {
-  background: linear-gradient(135deg, var(--primary), var(--accent), var(--accent2));
-  background-size: 200% 200%;
-  animation: bgShift 10s ease-in-out infinite;
-}
-
-.btn--iconGlass {
-  display: inline-flex;
+  padding: 20px;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.55);
-  border-color: rgba(229, 231, 235, 0.9);
-  color: var(--text);
+  gap: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
 }
 
-.headActions {
-  display: inline-flex;
-  gap: 10px;
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 24px;
 }
 
-.btn--big {
+.stat-icon--primary {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.stat-icon--success {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.stat-icon--warning {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.stat-icon--info {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.stat-content {
+  flex: 1;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 4px;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.dashboard__main {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 1024px) {
+  .dashboard__main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.main-section,
+.side-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.section-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 20px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.card-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 4px;
+}
+
+.card-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+.punch-status {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.status-item {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.status-label {
+  font-size: 12px;
+  color: #64748b;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.status-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.status-value.score {
+  color: #3b82f6;
+  font-size: 22px;
+}
+
+.punch-button {
   width: 100%;
-  padding: 14px 14px;
-  font-size: 16px;
-  border-radius: 14px;
-  margin-top: 10px;
+  padding: 20px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
-.btn:disabled {
-  opacity: 0.7;
+.punch-button:hover:not(.punch-button--disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+}
+
+.punch-button--disabled {
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
-.status {
-  display: grid;
-  gap: 10px;
-  padding: 10px 0 4px;
+.punch-icon {
+  font-size: 28px;
 }
 
-.status__item {
+.punch-text {
+  font-size: 18px;
+}
+
+.punch-message {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.punch-message--success {
+  background: rgba(34, 197, 94, 0.1);
+  color: #15803d;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.punch-message--error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.punch-message--warn {
+  background: rgba(245, 158, 11, 0.1);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.notice-list {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(229, 231, 235, 0.9);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(10px);
 }
 
-.status__k {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+.notice-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  transition: all 0.2s ease;
 }
 
-.status__v {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 800;
+.notice-item:hover {
+  background: #f1f5f9;
 }
 
-.status__time {
+.notice-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.notice-content {
+  flex: 1;
+}
+
+.notice-title {
+  font-size: 14px;
   font-weight: 600;
-  color: var(--muted);
+  color: #1e293b;
+  margin: 0 0 4px;
 }
 
-.mono {
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
-}
-
-.tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
+.notice-time {
   font-size: 12px;
-  font-weight: 900;
-  border: 1px solid transparent;
-}
-
-.tag--ok {
-  background: var(--success-bg);
-  color: var(--success-ink);
-  border-color: rgba(6, 95, 70, 0.2);
-}
-
-.tag--warn {
-  background: var(--warn-bg);
-  color: var(--warn-ink);
-  border-color: rgba(146, 64, 14, 0.2);
-}
-
-.alert {
-  margin-top: 12px;
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 13px;
-  border: 1px solid transparent;
-}
-
-.alert--success {
-  background: var(--success-bg);
-  color: var(--success-ink);
-  border-color: rgba(6, 95, 70, 0.2);
-}
-
-.alert--error {
-  background: var(--danger-bg);
-  color: var(--danger-ink);
-  border-color: rgba(153, 27, 27, 0.2);
-}
-
-.alert--warn {
-  background: var(--warn-bg);
-  color: var(--warn-ink);
-  border-color: rgba(146, 64, 14, 0.2);
-}
-
-.alert--info {
-  background: #eff6ff;
-  color: #1e40af;
-  border-color: rgba(30, 64, 175, 0.2);
-}
-
-.tips {
-  margin-top: 14px;
-  border-top: 1px dashed var(--border);
-  padding-top: 12px;
-}
-
-.tips__k {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 900;
-  margin-bottom: 6px;
-}
-
-.tips__list {
+  color: #64748b;
   margin: 0;
-  padding-left: 16px;
-  color: #475569;
-  font-size: 13px;
-  display: grid;
-  gap: 6px;
 }
 
-.side__title {
-  font-weight: 950;
-  letter-spacing: 0.2px;
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.side__sub {
-  margin-top: 6px;
+.quick-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-action:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateX(4px);
+}
+
+.quick-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quick-icon {
+  font-size: 20px;
+}
+
+.quick-text {
+  flex: 1;
+}
+
+.data-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.data-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.data-item:hover {
+  background: #f1f5f9;
+  transform: translateX(4px);
+}
+
+.data-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.data-content {
+  flex: 1;
+}
+
+.data-label {
   font-size: 12px;
-  color: var(--muted);
+  color: #64748b;
+  margin: 0 0 4px;
 }
 
-.side__btns {
-  margin-top: 12px;
-  display: grid;
-  gap: 10px;
+.data-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.bgFX {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-size: 400% 400%;
+  background-position: center;
+  animation: bgSlide 60s ease-in-out infinite;
+}
+
+.bgFX::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(30, 58, 138, 0.1) 0%, rgba(30, 64, 175, 0.15) 100%);
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: -260px;
+    transition: left 0.3s ease;
+  }
+  
+  .sidebar.open {
+    left: 0;
+  }
+  
+  .top-bar {
+    padding: 8px 16px;
+  }
+  
+  .info-bar {
+    display: none;
+  }
+  
+  .dashboard {
+    padding: 16px;
+  }
+}
+</style>
+
+<style>
+:root {
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.1);
+  --success-ink: #15803d;
+  --danger: #ef4444;
+  --danger-bg: rgba(239, 68, 68, 0.1);
+  --danger-ink: #b91c1c;
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --warning-ink: #b45309;
+  --text: #1e293b;
+  --muted: #64748b;
+  --border: #e5e7eb;
+  --bg: #f8fafc;
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-strong: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: transparent;
+  min-height: 100vh;
+  color: var(--text);
+}
+
+@keyframes bgSlide {
+  0%, 20% {
+    background-position: 0% 50%;
+  }
+  25%, 45% {
+    background-position: 50% 50%;
+  }
+  50%, 70% {
+    background-position: 100% 50%;
+  }
+  75%, 95% {
+    background-position: 50% 100%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 </style>

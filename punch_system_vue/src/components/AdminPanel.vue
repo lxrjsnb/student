@@ -1,4 +1,5 @@
 <template>
+  <div class="admin-bg" aria-hidden="true"></div>
   <div class="admin">
     <div class="admin__header">
       <div>
@@ -256,6 +257,7 @@ onMounted(() => {
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
+  background: transparent;
 }
 
 .admin__header {
@@ -284,11 +286,11 @@ onMounted(() => {
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(229, 231, 235, 0.9);
   border-radius: 16px;
-  box-shadow: var(--shadow-strong);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(20px);
   padding: 18px;
 }
 
@@ -439,5 +441,38 @@ tbody tr:hover td {
   background: #eff6ff;
   color: #1e40af;
   border-color: rgba(30, 64, 175, 0.2);
+}
+</style>
+
+<style>
+.admin-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background-size: 400% 400%;
+  background-position: center;
+  animation: adminBgSlide 60s ease-in-out infinite;
+  z-index: -9999;
+}
+
+@keyframes adminBgSlide {
+  0%, 20% {
+    background-position: 0% 50%;
+  }
+  25%, 45% {
+    background-position: 50% 50%;
+  }
+  50%, 70% {
+    background-position: 100% 50%;
+  }
+  75%, 95% {
+    background-position: 50% 100%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 </style>
