@@ -192,6 +192,33 @@ def delete_record(record_id):
 
     return jsonify({'code': 200, 'msg': '删除成功'})
 
+# 9. 修改用户分数（管理员）
+@app.route('/admin/users/<int:user_id>/score', methods=['PUT'])
+@admin_required
+def update_user_score(user_id):
+    data = request.json
+    score = data.get('score')
+    
+    if score is None:
+        return jsonify({'code': 400, 'msg': '缺少分数参数'}), 400
+    
+    try:
+        score = float(score)
+    except (ValueError, TypeError):
+        return jsonify({'code': 400, 'msg': '分数必须是数字'}), 400
+    
+    if score < 0:
+        return jsonify({'code': 400, 'msg': '分数不能为负数'}), 400
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET score = %s WHERE id = %s', (score, user_id))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({'code': 200, 'msg': '分数修改成功', 'score': score})
+
 # 启动后端服务
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

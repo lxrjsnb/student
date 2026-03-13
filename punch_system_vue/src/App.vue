@@ -212,6 +212,9 @@ function loadUserFromStorage() {
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!parsed?.id || !parsed?.username) return null
+    if (parsed.score !== undefined) {
+      userScore.value = parseFloat(parsed.score) || 0
+    }
     return parsed
   } catch {
     return null
@@ -258,7 +261,7 @@ function setUser(user, remember) {
   currentUser.value = { ...user }
   console.log('setUser 后，currentUser.value:', currentUser.value)
   if (user.score !== undefined) {
-    userScore.value = user.score
+    userScore.value = parseFloat(user.score) || 0
   }
   view.value = 'home'
   if (remember) {
@@ -384,9 +387,6 @@ async function handleAuth(payload) {
       } catch (err) {
         console.error('刷新记录失败:', err)
       }
-      setTimeout(() => {
-        location.reload()
-      }, 300)
       return
     }
     authMessage.value = data.msg || '登录失败。'
@@ -442,7 +442,7 @@ async function punchNow() {
     if (data.code === 200) {
       punchMessage.value = `打卡成功，获得${data.points_gained}分！当前分数：${data.score}`
       punchMessageType.value = 'success'
-      userScore.value = data.score
+      userScore.value = parseFloat(data.score) || 0
       lastPunchTime.value = new Date()
       cooldownRemaining.value = 10
       punchLoading.value = false
@@ -456,9 +456,6 @@ async function punchNow() {
       setTimeout(() => {
         pulsePunch.value = false
       }, 900)
-      setTimeout(() => {
-        location.reload()
-      }, 1000)
       return
     }
     if (data.code === 429) {

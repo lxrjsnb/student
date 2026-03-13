@@ -27,17 +27,48 @@
                 <th>用户名</th>
                 <th style="width: 120px">分数</th>
                 <th style="width: 150px">签到次数</th>
+                <th style="width: 150px">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="user in users" :key="user.id">
                 <td class="mono">{{ user.id }}</td>
                 <td>{{ user.username }}</td>
-                <td class="mono score">{{ user.score }}</td>
+                <td class="mono">
+                  <span v-if="editingUserId !== user.id">{{ user.score }}</span>
+                  <input
+                    v-else
+                    v-model="editingScore"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    class="score-input"
+                    @keyup.enter="saveScore(user.id)"
+                    @keyup.esc="cancelEdit"
+                  />
+                </td>
                 <td class="mono">{{ getUserPunchCount(user.id) }}</td>
+                <td>
+                  <button
+                    v-if="editingUserId !== user.id"
+                    class="btn btn--small btn--ghost"
+                    type="button"
+                    @click="startEdit(user)"
+                  >
+                    修改
+                  </button>
+                  <template v-else>
+                    <button class="btn btn--small btn--primary" type="button" @click="saveScore(user.id)">
+                      保存
+                    </button>
+                    <button class="btn btn--small btn--ghost" type="button" @click="cancelEdit">
+                      取消
+                    </button>
+                  </template>
+                </td>
               </tr>
               <tr v-if="users.length === 0">
-                <td colspan="4" class="empty">暂无用户</td>
+                <td colspan="5" class="empty">暂无用户</td>
               </tr>
             </tbody>
           </table>
@@ -90,7 +121,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getAllUsers, getAllRecords, deleteRecord as deleteRecordApi } from '../lib/api'
+import { getAllUsers, getAllRecords, deleteRecord as deleteRecordApi, updateUserScore } from '../lib/api'
 
 const props = defineProps({
   token: { type: String, required: true }
@@ -104,6 +135,9 @@ const loading = ref(false)
 const recordsLoading = ref(false)
 const message = ref('')
 const messageType = ref('info')
+
+const editingUserId = ref(null)
+const editingScore = ref(0)
 
 async function loadUsers() {
   loading.value = true
@@ -143,6 +177,45 @@ async function loadRecords() {
 
 function getUserPunchCount(userId) {
   return records.value.filter(r => r.user_id === userId).length
+}
+
+function startEdit(user) {
+  editingUserId.value = user.id
+  editingScore.value = user.score
+}
+
+function cancelEdit() {
+  editingUserId.value = null
+  editingScore.value = 0
+}
+
+async function saveScore(userId) {
+  const score = parseFloat(editingScore.value)
+  if (isNaN(score) || score < 0) {
+    message.value = '分数必须是大于等于0的数字'
+    messageType.value = 'error'
+    return
+  }
+
+  loading.value = true
+  message.value = ''
+  try {
+    const data = await updateUserScore({ token: props.token, userId, score })
+    if (data.code === 200) {
+      message.value = '分数修改成功'
+      messageType.value = 'success'
+      editingUserId.value = null
+      await loadUsers()
+    } else {
+      message.value = data.msg || '修改失败'
+      messageType.value = 'error'
+    }
+  } catch (err) {
+    message.value = `修改失败：${err?.message || '未知错误'}`
+    messageType.value = 'error'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function deleteRecord(recordId) {
@@ -310,6 +383,24 @@ tbody tr:hover td {
 .score {
   font-weight: 800;
   color: var(--primary);
+}
+
+.score-input {
+  width: 80px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--bg);
+}
+
+.score-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 .empty {
