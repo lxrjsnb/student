@@ -23,7 +23,7 @@
           <span class="nav-item__text">工作台</span>
         </button>
         <button
-          v-if="isSuperAdmin"
+          v-if="isAdmin"
           class="nav-item"
           :class="{ active: view === 'superAdminDashboard' }"
           @click="goSuperAdminDashboard"
@@ -155,6 +155,7 @@
 
       <SuperAdminDashboard
         v-else-if="view === 'superAdminDashboard'"
+        :isSuperAdmin="isSuperAdmin"
         @logout="adminLogout"
         @goUsers="goAdminPanel"
         @goRecords="goAdminPanel"
@@ -166,6 +167,7 @@
       <AdminPanel
         v-if="view === 'adminPanel'"
         :token="adminToken"
+        :role="currentUser?.role || 'user'"
         @logout="adminLogout"
         @goOverview="adminGoOverview"
         @goApprove="goAdminApprove"
@@ -181,6 +183,8 @@
 
       <AdminApprove
         v-else-if="view === 'adminApprove'"
+        :token="adminToken"
+        :role="currentUser?.role || 'user'"
       />
 
       <ProfileCard
@@ -595,10 +599,17 @@ async function handleAuth(payload) {
     const data = await login({ username, password })
     console.log('登录响应:', data)
     if (data.code === 200) {
-      console.log('登录成功，用户数据:', { id: data.user_id, username: data.username, score: data.score })
-      adminToken.value = ''
-      localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
-      setUser({ id: data.user_id, username: data.username, score: data.score }, payload.remember)
+      console.log('登录成功，用户数据:', { id: data.user_id, username: data.username, score: data.score, role: data.role })
+      
+      if (data.role === 'admin' || data.role === 'super_admin') {
+        adminToken.value = 'admin_token'
+        localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
+      } else {
+        adminToken.value = ''
+        localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
+      }
+      
+      setUser({ id: data.user_id, username: data.username, score: data.score, role: data.role }, payload.remember)
       authMessage.value = ''
       authLoading.value = false
       console.log('设置用户后，currentUser:', currentUser.value)
@@ -757,6 +768,9 @@ function goAdminApprove() {
 }
 
 function goAdminPanel() {
+  console.log('=== goAdminPanel ===')
+  console.log('adminToken.value:', adminToken.value)
+  console.log('currentUser.value:', currentUser.value)
   view.value = 'adminPanel'
 }
 
@@ -765,6 +779,11 @@ function goSuperAdminDashboard() {
 }
 
 function goAdminApply() {
+  console.log('=== 进入申请管理员页面 ===')
+  console.log('currentUser:', currentUser.value)
+  console.log('currentUser.id:', currentUser.value?.id)
+  console.log('currentUser.username:', currentUser.value?.username)
+  console.log('currentUser.role:', currentUser.value?.role)
   view.value = 'adminApply'
 }
 

@@ -92,6 +92,17 @@
 import { ref, onMounted } from 'vue'
 import { getAdminApplications, approveAdminApplication } from '../lib/api'
 
+const props = defineProps({
+  token: {
+    type: String,
+    required: true
+  },
+  role: {
+    type: String,
+    default: 'user'
+  }
+})
+
 const applications = ref([])
 const loading = ref(false)
 const processing = ref(false)
@@ -103,7 +114,7 @@ async function loadApplications() {
   message.value = ''
   
   try {
-    const data = await getAdminApplications()
+    const data = await getAdminApplications({ token: props.token, role: props.role })
     if (data.code === 200) {
       applications.value = data.data || []
     } else {
@@ -126,8 +137,10 @@ async function approveApplication(applicationId) {
   
   try {
     const data = await approveAdminApplication({
-      application_id: applicationId,
-      action: 'approve'
+      token: props.token,
+      applicationId: applicationId,
+      action: 'approve',
+      role: props.role
     })
     
     if (data.code === 200) {
@@ -154,8 +167,10 @@ async function rejectApplication(applicationId) {
   
   try {
     const data = await approveAdminApplication({
-      application_id: applicationId,
-      action: 'reject'
+      token: props.token,
+      applicationId: applicationId,
+      action: 'reject',
+      role: props.role
     })
     
     if (data.code === 200) {

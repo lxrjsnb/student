@@ -45,7 +45,16 @@
             <tbody>
               <tr v-for="user in users" :key="user.id">
                 <td class="mono">{{ user.id }}</td>
-                <td>{{ user.username }}</td>
+                <td>
+                  {{ user.username }}
+                  <span 
+                    v-if="user.role" 
+                    class="role-badge" 
+                    :class="`role-badge--${user.role}`"
+                  >
+                    {{ getRoleText(user.role) }}
+                  </span>
+                </td>
                 <td class="mono">
                   <span v-if="editingUserId !== user.id">{{ user.score }}</span>
                   <input
@@ -136,7 +145,8 @@ import { ref, onMounted } from 'vue'
 import { getAllUsers, getAllRecords, deleteRecord as deleteRecordApi, updateUserScore } from '../lib/api'
 
 const props = defineProps({
-  token: { type: String, required: true }
+  token: { type: String, required: true },
+  role: { type: String, default: 'user' }
 })
 
 const emit = defineEmits(['logout', 'goOverview', 'goApprove', 'goDashboard'])
@@ -153,8 +163,12 @@ const editingScore = ref(0)
 
 async function loadUsers() {
   loading.value = true
+  console.log('=== AdminPanel loadUsers ===')
+  console.log('props.token:', props.token)
+  console.log('props.role:', props.role)
   try {
-    const data = await getAllUsers({ token: props.token })
+    const data = await getAllUsers({ token: props.token, role: props.role })
+    console.log('getAllUsers response:', data)
     if (data.code === 200) {
       users.value = data.data || []
     } else {
@@ -162,6 +176,7 @@ async function loadUsers() {
       messageType.value = 'error'
     }
   } catch (err) {
+    console.error('loadUsers error:', err)
     message.value = `加载失败：${err?.message || '未知错误'}`
     messageType.value = 'error'
   } finally {
@@ -172,7 +187,7 @@ async function loadUsers() {
 async function loadRecords() {
   recordsLoading.value = true
   try {
-    const data = await getAllRecords({ token: props.token })
+    const data = await getAllRecords({ token: props.token, role: props.role })
     if (data.code === 200) {
       records.value = data.data || []
     } else {
@@ -212,7 +227,7 @@ async function saveScore(userId) {
   loading.value = true
   message.value = ''
   try {
-    const data = await updateUserScore({ token: props.token, userId, score })
+    const data = await updateUserScore({ token: props.token, userId, score, role: props.role })
     if (data.code === 200) {
       message.value = '分数修改成功'
       messageType.value = 'success'
@@ -236,7 +251,7 @@ async function deleteRecord(recordId) {
   recordsLoading.value = true
   message.value = ''
   try {
-    const data = await deleteRecordApi({ token: props.token, recordId })
+    const data = await deleteRecordApi({ token: props.token, recordId, role: props.role })
     if (data.code === 200) {
       message.value = '删除成功'
       messageType.value = 'success'
@@ -255,6 +270,15 @@ async function deleteRecord(recordId) {
 
 function formatTime(timeStr) {
   return timeStr.replace('T', ' ')
+}
+
+function getRoleText(role) {
+  const roleMap = {
+    'user': '用户',
+    'admin': '管理员',
+    'super_admin': '超级管理员'
+  }
+  return roleMap[role] || '用户'
 }
 
 onMounted(() => {
@@ -478,6 +502,31 @@ tbody tr:hover td {
   background: #eff6ff;
   color: #1e40af;
   border-color: rgba(30, 64, 175, 0.2);
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.role-badge--user {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.role-badge--admin {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.role-badge--super_admin {
+  background: #fef3c7;
+  color: #92400e;
 }
 </style>
 

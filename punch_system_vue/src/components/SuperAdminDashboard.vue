@@ -4,10 +4,10 @@
     <div class="dashboard">
       <div class="dashboard__header">
         <div class="header-content">
-          <div class="header-icon">👑</div>
+          <div class="header-icon">{{ isSuperAdmin ? '👑' : '👨‍💼' }}</div>
           <div class="header-text">
-            <h1 class="dashboard__title">超级管理员控制台</h1>
-            <p class="dashboard__subtitle">管理系统与审批申请</p>
+            <h1 class="dashboard__title">{{ isSuperAdmin ? '超级管理员控制台' : '管理员控制台' }}</h1>
+            <p class="dashboard__subtitle">{{ isSuperAdmin ? '管理系统与审批申请' : '管理系统数据' }}</p>
           </div>
         </div>
         <button class="btn btn--ghost" type="button" @click="$emit('logout')">
@@ -37,7 +37,7 @@
           </div>
         </div>
 
-        <div class="dashboard__section">
+        <div v-if="isSuperAdmin" class="dashboard__section">
           <h2 class="section-title">✍️ 权限管理</h2>
           <div class="mini-app-grid">
             <div class="mini-app-card mini-app-card--highlight" @click="$emit('goApprove')">
@@ -84,6 +84,13 @@
 import { ref, onMounted } from 'vue'
 import { getAllUsers, getAllRecords, getAdminApplications } from '../lib/api'
 
+const props = defineProps({
+  isSuperAdmin: {
+    type: Boolean,
+    default: false
+  }
+})
+
 const emit = defineEmits(['logout', 'goUsers', 'goRecords', 'goOverview', 'goApprove', 'goAdmins'])
 
 const stats = ref({
@@ -98,8 +105,8 @@ const pendingCount = ref(0)
 async function loadStats() {
   try {
     const [usersRes, recordsRes] = await Promise.all([
-      getAllUsers({ token: 'admin_token' }),
-      getAllRecords({ token: 'admin_token' })
+      getAllUsers({ token: 'admin_token', role: 'super_admin' }),
+      getAllRecords({ token: 'admin_token', role: 'super_admin' })
     ])
 
     if (usersRes.code === 200) {
@@ -112,7 +119,7 @@ async function loadStats() {
     }
 
     try {
-      const appsRes = await getAdminApplications({ token: 'admin_token' })
+      const appsRes = await getAdminApplications({ token: 'admin_token', role: 'super_admin' })
       if (appsRes.code === 200) {
         const pendingApps = appsRes.data.filter(app => app.status === 'pending')
         stats.value.pendingApps = pendingApps.length

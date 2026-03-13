@@ -6,13 +6,13 @@ export const API_BASE_URL =
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
-  validateStatus: (status) => status >= 200 && status < 300 || status === 401 || status === 429
+  validateStatus: (status) => status >= 200 && status < 300 || status === 401 || status === 429 || status === 400
 })
 
 export const adminApi = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
-  validateStatus: (status) => status >= 200 && status < 300 || status === 401 || status === 429
+  validateStatus: (status) => status >= 200 && status < 300 || status === 401 || status === 429 || status === 400
 })
 
 export async function login({ username, password }) {
@@ -40,49 +40,55 @@ export async function adminLogin({ username, password }) {
   return res.data
 }
 
-export async function getAllUsers({ token }) {
+export async function getAllUsers({ token, role }) {
+  console.log('=== getAllUsers ===')
+  console.log('token:', token)
+  console.log('role:', role)
+  const headers = { Authorization: `Bearer ${token}`, 'X-User-Role': role || 'user' }
+  console.log('headers:', headers)
   const res = await adminApi.get('/admin/users', {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: headers
   })
+  console.log('getAllUsers response:', res.data)
   return res.data
 }
 
-export async function getAllRecords({ token }) {
+export async function getAllRecords({ token, role }) {
   const res = await adminApi.get('/admin/records', {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}`, 'X-User-Role': role || 'user' }
   })
   return res.data
 }
 
-export async function deleteRecord({ token, recordId }) {
+export async function deleteRecord({ token, recordId, role }) {
   const res = await adminApi.delete(`/admin/records/${recordId}`, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}`, 'X-User-Role': role || 'user' }
   })
   return res.data
 }
 
-export async function updateUserScore({ token, userId, score }) {
+export async function updateUserScore({ token, userId, score, role }) {
   const res = await adminApi.put(`/admin/users/${userId}/score`, { score }, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}`, 'X-User-Role': role || 'user' }
   })
   return res.data
 }
 
-export async function applyForAdmin({ userId, username, reason }) {
-  const res = await api.post('/admin/apply', { user_id: userId, username, reason })
+export async function applyForAdmin(data) {
+  const res = await api.post('/admin/apply', data)
   return res.data
 }
 
-export async function getAdminApplications({ token }) {
+export async function getAdminApplications({ token, role }) {
   const res = await adminApi.get('/admin/applications', {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}`, 'X-User-Role': role || 'user' }
   })
   return res.data
 }
 
-export async function approveAdminApplication({ token, applicationId, action }) {
+export async function approveAdminApplication({ token, applicationId, action, role }) {
   const res = await adminApi.post('/admin/approve', { application_id: applicationId, action }, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}`, 'X-User-Role': role || 'user' }
   })
   return res.data
 }

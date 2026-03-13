@@ -3,16 +3,41 @@ from flask_cors import CORS
 import pymysql
 from datetime import datetime
 from functools import wraps
+import logging
+import sys
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "X-User-Role"]}})
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ],
+    force=True
+)
+logger = logging.getLogger(__name__)
+
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.setLevel(logging.DEBUG)
+werkzeug_logger.addHandler(logging.StreamHandler(sys.stdout))
+
+@app.after_request
+def after_request(response):
+    print(f"\n=== 响应信息 ===", flush=True)
+    print(f"状态码: {response.status_code}", flush=True)
+    print(f"路径: {request.path}", flush=True)
+    print(f"方法: {request.method}", flush=True)
+    print(f"==================\n", flush=True)
+    return response
 
 DB_CONFIG = {
-    'host': 'localhost',
+    'host': '123.56.88.190',
     'port': 3306,
-    'user': 'root',
+    'user': 'student',
     'password': '123456',
-    'database': 'punch_system',
+    'database': 'student',
     'cursorclass': pymysql.cursors.DictCursor
 }
 
@@ -28,8 +53,31 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         auth = request.headers.get('Authorization')
-        if not auth or auth != 'Bearer admin_token':
+        if not auth:
+            return jsonify({'code': 401, 'msg': '需要登录'}), 401
+        
+        token = auth.replace('Bearer ', '')
+        if token != 'admin_token':
             return jsonify({'code': 403, 'msg': '需要管理员权限'}), 403
+        
+        user_role = request.headers.get('X-User-Role')
+        if user_role not in ['admin', 'super_admin']:
+            return jsonify({'code': 403, 'msg': '需要管理员权限'}), 403
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+def super_admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth = request.headers.get('Authorization')
+        if not auth:
+            return jsonify({'code': 401, 'msg': '需要登录'}), 401
+        
+        token = auth.replace('Bearer ', '')
+        if token != 'admin_token':
+            return jsonify({'code': 403, 'msg': '需要超级管理员权限'}), 403
+        
         return f(*args, **kwargs)
     return decorated_function
 
@@ -247,14 +295,25 @@ def update_user_score(user_id):
 # 6. 申请管理员接口
 @app.route('/admin/apply', methods=['POST'])
 def apply_admin():
-    data = request.json
+    print(f"\n=== 收到管理员申请请求 ===", flush=True)
+    print(f"请求方法: {request.method}", flush=True)
+    print(f"请求头: {dict(request.headers)}", flush=True)
+    print(f"原始数据: {request.get_data()}", flush=True)
+    
+    try:
+        data = request.json
+    except Exception as e:
+        print(f"解析JSON失败: {e}", flush=True)
+        return jsonify({'code': 400, 'msg': '请求数据格式错误'}), 400
+    
     user_id = data.get('user_id')
     username = data.get('username')
     reason = data.get('reason')
 
-    print(f"收到管理员申请请求: user_id={user_id}, username={username}, reason={reason}")
+    print(f"解析后的数据: user_id={user_id}, username={username}, reason={reason}", flush=True)
 
     if not user_id or not username or not reason:
+        print(f"参数检查失败: user_id={user_id}, username={username}, reason={reason}", flush=True)
         return jsonify({'code': 400, 'msg': '缺少必要参数'}), 400
 
     try:
@@ -268,7 +327,7 @@ def apply_admin():
             if existing:
                 return jsonify({'code': 400, 'msg': '您已有待处理的申请，请等待审批'}), 400
         except Exception as e:
-            print(f"查询admin_applications表失败: {e}")
+            app.logger.error(f"查询admin_applications表失败: {e}")
             return jsonify({'code': 500, 'msg': f'数据库表不存在或查询失败：{str(e)}'}), 500
         
         # 检查用户是否已经是管理员
@@ -282,10 +341,10 @@ def apply_admin():
                     (user_id, username, reason))
         conn.commit()
         
-        print(f"管理员申请创建成功: user_id={user_id}")
+        app.logger.info(f"管理员申请创建成功: user_id={user_id}")
         return jsonify({'code': 200, 'msg': '申请已提交，请等待超级管理员审批'})
     except Exception as e:
-        print(f"申请管理员失败: {e}")
+        app.logger.error(f"申请管理员失败: {e}")
         return jsonify({'code': 500, 'msg': f'申请失败：{str(e)}'}), 500
     finally:
         if 'cursor' in locals():
@@ -295,7 +354,7 @@ def apply_admin():
 
 # 7. 获取管理员申请列表接口
 @app.route('/admin/applications', methods=['GET'])
-@admin_required
+@super_admin_required
 def get_admin_applications():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -308,7 +367,7 @@ def get_admin_applications():
 
 # 8. 审批管理员申请接口
 @app.route('/admin/approve', methods=['POST'])
-@admin_required
+@super_admin_required
 def approve_admin():
     data = request.json
     application_id = data.get('application_id')
@@ -376,6 +435,16 @@ def get_user_role(user_id):
         'is_super_admin': is_super_admin
     })
 
+# 测试路由
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({'code': 200, 'msg': '后端服务正常运行', 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+
 # 启动后端服务
 if __name__ == '__main__':
+    print("\n=== Flask应用启动 ===", flush=True)
+    print("注册的路由:", flush=True)
+    for rule in app.url_map.iter_rules():
+        print(f"  {rule.methods} {rule.endpoint} {rule.rule}", flush=True)
+    print("==================\n", flush=True)
     app.run(debug=True, port=5000)

@@ -80,7 +80,7 @@ const props = defineProps({
 
 const emit = defineEmits(['cancel', 'success'])
 
-const username = ref(props.user.username)
+const username = ref(props.user?.username || '')
 const reason = ref('')
 const loading = ref(false)
 const message = ref('')
@@ -89,6 +89,18 @@ const hasApplied = ref(false)
 const applicationTime = ref('')
 
 async function submitApplication() {
+  console.log('=== 开始提交申请 ===')
+  console.log('props.user:', props.user)
+  console.log('user_id:', props.user?.id)
+  console.log('username:', props.user?.username)
+  console.log('reason:', reason.value)
+  
+  if (!props.user?.id) {
+    message.value = '用户信息未加载，请重新登录'
+    messageType.value = 'error'
+    return
+  }
+  
   if (!reason.value.trim()) {
     message.value = '请填写申请理由'
     messageType.value = 'error'
@@ -99,11 +111,15 @@ async function submitApplication() {
   message.value = ''
   
   try {
-    const data = await applyForAdmin({
+    const requestData = {
       user_id: props.user.id,
       username: props.user.username,
       reason: reason.value.trim()
-    })
+    }
+    console.log('发送请求数据:', requestData)
+    
+    const data = await applyForAdmin(requestData)
+    console.log('收到响应:', data)
     
     if (data.code === 200) {
       message.value = data.msg
@@ -119,7 +135,9 @@ async function submitApplication() {
       messageType.value = 'error'
     }
   } catch (err) {
-    message.value = `申请失败：${err?.message || '未知错误'}`
+    console.error('申请失败，错误信息:', err)
+    console.error('错误详情:', err.response?.data)
+    message.value = `申请失败：${err?.response?.data?.msg || err?.message || '未知错误'}`
     messageType.value = 'error'
   } finally {
     loading.value = false
