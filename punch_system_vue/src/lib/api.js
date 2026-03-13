@@ -6,7 +6,13 @@ export const API_BASE_URL =
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
-  validateStatus: () => true
+  validateStatus: (status) => status >= 200 && status < 300 || status === 429
+})
+
+export const adminApi = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+  validateStatus: (status) => status >= 200 && status < 300 || status === 429
 })
 
 export async function login({ username, password }) {
@@ -26,5 +32,31 @@ export async function punch({ userId }) {
 
 export async function getRecords({ userId }) {
   const res = await api.get(`/records/${userId}`)
+  return res.data
+}
+
+export async function adminLogin({ username, password }) {
+  const res = await api.post('/admin/login', { username, password })
+  return res.data
+}
+
+export async function getAllUsers({ token }) {
+  const res = await adminApi.get('/admin/users', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function getAllRecords({ token }) {
+  const res = await adminApi.get('/admin/records', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function deleteRecord({ token, recordId }) {
+  const res = await adminApi.delete(`/admin/records/${recordId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
   return res.data
 }

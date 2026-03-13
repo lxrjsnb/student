@@ -29,6 +29,15 @@
           >
             个人
           </button>
+          <button
+            v-if="user"
+            class="nav__btn nav__btn--admin"
+            type="button"
+            :disabled="disabled"
+            @click="$emit('goAdmin')"
+          >
+            管理员
+          </button>
         </nav>
 
         <div class="now" :title="nowText">{{ nowText }}</div>
@@ -52,7 +61,7 @@ defineProps({
   disabled: { type: Boolean, default: false }
 })
 
-defineEmits(['logout', 'goHome', 'goProfile'])
+defineEmits(['logout', 'goHome', 'goProfile', 'goAdmin'])
 </script>
 
 <style scoped>
@@ -155,6 +164,14 @@ defineEmits(['logout', 'goHome', 'goProfile'])
 .nav__btn--active {
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(124, 58, 237, 0.18));
   border-color: rgba(37, 99, 235, 0.25);
+}
+
+.nav__btn--admin {
+  color: var(--accent);
+}
+
+.nav__btn--admin:hover {
+  background: rgba(124, 58, 237, 0.08);
 }
 
 .nav__btn:disabled {

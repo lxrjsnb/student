@@ -2,20 +2,18 @@
   <section class="auth">
     <div class="card">
       <div class="card__head">
-        <h1 class="card__title">{{ mode === 'login' ? '登录' : '注册' }}</h1>
-        <p class="card__sub">
-          {{ mode === 'login' ? '使用账号密码进入打卡系统。' : '创建账号后即可打卡。' }}
-        </p>
+        <h1 class="card__title">管理员登录</h1>
+        <p class="card__sub">仅限授权管理员访问。</p>
       </div>
 
       <form class="form" @submit.prevent="onSubmit">
         <label class="field">
-          <span class="field__label">用户名</span>
+          <span class="field__label">管理员账号</span>
           <input
             v-model.trim="username"
             class="field__input"
             autocomplete="username"
-            placeholder="例如：test"
+            placeholder="请输入管理员账号"
             :disabled="loading"
             required
           />
@@ -34,52 +32,18 @@
           />
         </label>
 
-        <label v-if="mode === 'register'" class="field">
-          <span class="field__label">确认密码</span>
-          <input
-            v-model="confirmPassword"
-            class="field__input"
-            type="password"
-            autocomplete="new-password"
-            placeholder="再次输入密码"
-            :disabled="loading"
-            required
-          />
-        </label>
-
         <div class="row">
-          <label class="check">
-            <input v-model="remember" type="checkbox" :disabled="loading" />
-            <span>记住登录</span>
-          </label>
-
-          <button
-            class="link"
-            type="button"
-            :disabled="loading"
-            @click="$emit('switchMode', mode === 'login' ? 'register' : 'login')"
-          >
-            {{ mode === 'login' ? '没有账号？去注册' : '已有账号？去登录' }}
-          </button>
-        </div>
-
-        <div v-if="mode === 'login'" class="row row--center">
-          <button class="link link--admin" type="button" :disabled="loading" @click="$emit('goAdmin')">
-            管理员登录
+          <button class="link" type="button" :disabled="loading" @click="$emit('goHome')">
+            返回普通用户登录
           </button>
         </div>
 
         <button class="btn" type="submit" :disabled="loading">
-          {{ loading ? '处理中…' : mode === 'login' ? '登录' : '注册' }}
+          {{ loading ? '登录中…' : '登录' }}
         </button>
 
         <div v-if="message" class="alert" :class="`alert--${messageType}`">
           {{ message }}
-        </div>
-
-        <div class="hint">
-          <span class="hint__k">接口地址：</span>
-          <span class="hint__v">{{ apiBaseUrl }}</span>
         </div>
       </form>
     </div>
@@ -90,28 +54,20 @@
 import { ref } from 'vue'
 
 const props = defineProps({
-  mode: { type: String, required: true }, // login | register
   loading: { type: Boolean, default: false },
   message: { type: String, default: '' },
-  messageType: { type: String, default: 'info' }, // info | success | error | warn
-  apiBaseUrl: { type: String, required: true },
-  defaultUsername: { type: String, default: '' }
+  messageType: { type: String, default: 'info' }
 })
 
-const emit = defineEmits(['auth', 'switchMode', 'goAdmin'])
+const emit = defineEmits(['login', 'goHome'])
 
-const username = ref(props.defaultUsername)
+const username = ref('')
 const password = ref('')
-const confirmPassword = ref('')
-const remember = ref(true)
 
 function onSubmit() {
-  emit('auth', {
-    mode: props.mode,
+  emit('login', {
     username: username.value,
-    password: password.value,
-    confirmPassword: confirmPassword.value,
-    remember: remember.value
+    password: password.value
   })
 }
 </script>
@@ -182,21 +138,9 @@ function onSubmit() {
 .row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.row--center {
-  justify-content: center;
-}
-
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .link {
@@ -211,10 +155,6 @@ function onSubmit() {
 .link:hover {
   transform: translateY(-1px);
   filter: saturate(1.1);
-}
-
-.link--admin {
-  color: var(--accent);
 }
 
 .link:disabled {
@@ -268,18 +208,5 @@ function onSubmit() {
   background: #eff6ff;
   color: #1e40af;
   border-color: rgba(30, 64, 175, 0.2);
-}
-
-.hint {
-  display: flex;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 6px;
-  word-break: break-all;
-}
-
-.hint__k {
-  color: #94a3b8;
 }
 </style>

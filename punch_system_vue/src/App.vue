@@ -2,6 +2,7 @@
   <div class="bgFX" aria-hidden="true"></div>
 
   <AppHeader
+    v-if="view !== 'adminLogin' && view !== 'adminPanel'"
     :user="currentUser"
     :now-text="nowText"
     :view="view"
@@ -9,11 +10,12 @@
     @logout="logout"
     @goHome="goHome"
     @goProfile="goProfile"
+    @goAdmin="goAdminLogin"
   />
 
   <main class="page">
     <AuthCard
-      v-if="!currentUser"
+      v-if="!currentUser && view !== 'adminLogin' && view !== 'adminPanel'"
       :mode="authMode"
       :loading="authLoading"
       :message="authMessage"
@@ -22,6 +24,22 @@
       :default-username="rememberedUsername"
       @switchMode="switchMode"
       @auth="handleAuth"
+      @goAdmin="goAdminLogin"
+    />
+
+    <AdminLogin
+      v-if="view === 'adminLogin'"
+      :loading="adminLoading"
+      :message="adminMessage"
+      :message-type="adminMessageType"
+      @login="handleAdminLogin"
+      @goHome="goHome"
+    />
+
+    <AdminPanel
+      v-if="view === 'adminPanel'"
+      :token="adminToken"
+      @logout="adminLogout"
     />
 
     <ProfileCard
@@ -37,12 +55,12 @@
       @logout="logout"
     />
 
-    <div v-else class="dash">
+    <div v-else-if="view === 'home' && currentUser" class="dash">
       <section class="card punch" :class="{ 'card--pulse': pulsePunch }">
         <div class="card__head">
           <div>
-            <h2 class="card__title">今日打卡</h2>
-            <p class="card__sub">按规范：一天一次；如需补卡请联系管理员。</p>
+            <h2 class="card__title">签到打卡</h2>
+            <p class="card__sub">每次签到获得0.5分，间隔10秒可再次签到。</p>
           </div>
           <div class="headActions">
             <button class="btn btn--ghost" type="button" :disabled="recordsLoading" @click="refreshRecords">
@@ -61,28 +79,29 @@
             <div class="status__v">{{ currentUser.username }}（ID: {{ currentUser.id }}）</div>
           </div>
           <div class="status__item">
-            <div class="status__k">今日状态</div>
-            <div class="status__v">
-              <span v-if="todayRecord" class="tag tag--ok">已打卡</span>
-              <span v-else class="tag tag--warn">未打卡</span>
-              <span v-if="todayRecord" class="mono status__time">时间：{{ todayRecord.punch_time }}</span>
-            </div>
+            <div class="status__k">当前分数</div>
+            <div class="status__v score">{{ userScore.toFixed(1) }}</div>
+          </div>
+          <div class="status__item">
+            <div class="status__k">今日签到次数</div>
+            <div class="status__v">{{ records.length }} 次</div>
           </div>
         </div>
 
         <button class="btn btn--primary btn--big" type="button" :disabled="punchDisabled" @click="punchNow">
-          {{ punchDisabled ? (todayRecord ? '今日已打卡' : '处理中…') : '立即打卡' }}
+          {{ cooldownRemaining > 0 ? `冷却中 (${cooldownRemaining}s)` : (punchLoading ? '处理中…' : '立即签到') }}
         </button>
         <div v-if="punchMessage" class="alert" :class="`alert--${punchMessageType}`">
           {{ punchMessage }}
         </div>
 
         <div class="tips">
-          <div class="tips__k">规范提示</div>
+          <div class="tips__k">签到规则</div>
           <ul class="tips__list">
-            <li>打卡时间以服务器时间为准。</li>
-            <li>建议先同步记录，确认今日是否已打卡。</li>
-            <li>如出现网络错误，请确认后端服务已启动且允许跨域。</li>
+            <li>每次签到获得0.5分</li>
+            <li>签到间隔为10秒</li>
+            <li>每日可多次签到，无次数限制</li>
+            <li>签到时间以服务器时间为准</li>
           </ul>
         </div>
       </section>
@@ -126,13 +145,16 @@ import ProfileCard from './components/ProfileCard.vue'
 import RecordsTable from './components/RecordsTable.vue'
 import ModalShell from './components/ModalShell.vue'
 import ClockIcon from './components/ClockIcon.vue'
-import { API_BASE_URL, getRecords, login, punch, register } from './lib/api'
+import AdminLogin from './components/AdminLogin.vue'
+import AdminPanel from './components/AdminPanel.vue'
+import { API_BASE_URL, getRecords, login, punch, register, adminLogin } from './lib/api'
 import { formatDateTime, isSameYmd, ymd } from './lib/time'
 
 const apiBaseUrl = API_BASE_URL
 
 const STORAGE_KEY_USER = 'punch.user'
 const STORAGE_KEY_USERNAME = 'punch.username'
+const STORAGE_KEY_ADMIN_TOKEN = 'punch.admin.token'
 
 const now = ref(new Date())
 const nowText = computed(() => formatDateTime(now.value))
@@ -145,7 +167,7 @@ const authMessageType = ref('info')
 const rememberedUsername = ref(localStorage.getItem(STORAGE_KEY_USERNAME) || '')
 
 const currentUser = ref(loadUserFromStorage())
-const view = ref('home') // home | profile
+const view = ref('home') // home | profile | adminLogin | adminPanel
 
 const pulsePunch = ref(false)
 const recordsModalOpen = ref(false)
@@ -160,14 +182,18 @@ const recordsLoading = ref(false)
 const filterStart = ref('')
 const filterEnd = ref('')
 
-const todayRecord = computed(() => {
-  const today = now.value
-  return records.value.find((r) => isSameYmd(r.punchAt, today)) || null
-})
+const adminToken = ref(localStorage.getItem(STORAGE_KEY_ADMIN_TOKEN) || '')
+const adminLoading = ref(false)
+const adminMessage = ref('')
+const adminMessageType = ref('info')
+
+const userScore = ref(0)
+const lastPunchTime = ref(null)
+const cooldownRemaining = ref(0)
 
 const latestRecord = computed(() => records.value[0] || null)
 
-const punchDisabled = computed(() => punchLoading.value || !!todayRecord.value)
+const punchDisabled = computed(() => punchLoading.value || cooldownRemaining.value > 0)
 
 const filteredRecords = computed(() => {
   const start = filterStart.value
@@ -227,7 +253,13 @@ function setFilterEnd(value) {
 }
 
 function setUser(user, remember) {
-  currentUser.value = user
+  console.log('setUser 被调用，传入的 user:', user)
+  console.log('setUser 前，currentUser.value:', currentUser.value)
+  currentUser.value = { ...user }
+  console.log('setUser 后，currentUser.value:', currentUser.value)
+  if (user.score !== undefined) {
+    userScore.value = user.score
+  }
   view.value = 'home'
   if (remember) {
     localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user))
@@ -245,7 +277,60 @@ function logout() {
   records.value = []
   recordsLoaded.value = false
   punchMessage.value = ''
+  userScore.value = 0
+  lastPunchTime.value = null
+  cooldownRemaining.value = 0
   localStorage.removeItem(STORAGE_KEY_USER)
+}
+
+function adminLogout() {
+  adminToken.value = ''
+  view.value = 'home'
+  localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
+}
+
+async function handleAdminLogin(payload) {
+  adminMessage.value = ''
+  adminMessageType.value = 'info'
+
+  const username = payload.username?.trim()
+  const password = payload.password ?? ''
+  if (!username || !password) {
+    adminMessage.value = '用户名和密码不能为空。'
+    adminMessageType.value = 'error'
+    return
+  }
+
+  adminLoading.value = true
+  try {
+    const data = await adminLogin({ username, password })
+    if (data.code === 200) {
+      adminToken.value = data.token
+      localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, data.token)
+      currentUser.value = null
+      localStorage.removeItem(STORAGE_KEY_USER)
+      view.value = 'adminPanel'
+      adminMessage.value = ''
+      return
+    }
+    adminMessage.value = data.msg || '登录失败。'
+    adminMessageType.value = 'error'
+  } catch (err) {
+    adminMessage.value = `请求失败：${err?.message || '未知错误'}。请确认后端已启动：${apiBaseUrl}`
+    adminMessageType.value = 'error'
+  } finally {
+    adminLoading.value = false
+  }
+}
+
+function goAdminLogin() {
+  currentUser.value = null
+  localStorage.removeItem(STORAGE_KEY_USER)
+  if (adminToken.value) {
+    view.value = 'adminPanel'
+  } else {
+    view.value = 'adminLogin'
+  }
 }
 
 async function handleAuth(payload) {
@@ -266,33 +351,51 @@ async function handleAuth(payload) {
   }
 
   authLoading.value = true
+  console.log('开始登录请求，模式:', payload.mode)
   try {
     if (payload.mode === 'register') {
       const data = await register({ username, password })
+      console.log('注册响应:', data)
       if (data.code === 200) {
         authMessage.value = '注册成功，请登录。'
         authMessageType.value = 'success'
         authMode.value = 'login'
+        authLoading.value = false
         return
       }
       authMessage.value = data.msg || '注册失败。'
       authMessageType.value = 'error'
+      authLoading.value = false
       return
     }
 
     const data = await login({ username, password })
+    console.log('登录响应:', data)
     if (data.code === 200) {
-      setUser({ id: data.user_id, username }, payload.remember)
+      console.log('登录成功，用户数据:', { id: data.user_id, username: data.username, score: data.score })
+      adminToken.value = ''
+      localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
+      setUser({ id: data.user_id, username: data.username, score: data.score }, payload.remember)
       authMessage.value = ''
-      await refreshRecords()
+      authLoading.value = false
+      console.log('设置用户后，currentUser:', currentUser.value)
+      try {
+        await refreshRecords()
+      } catch (err) {
+        console.error('刷新记录失败:', err)
+      }
+      setTimeout(() => {
+        location.reload()
+      }, 300)
       return
     }
     authMessage.value = data.msg || '登录失败。'
     authMessageType.value = 'error'
+    authLoading.value = false
   } catch (err) {
+    console.error('登录请求失败:', err)
     authMessage.value = `请求失败：${err?.message || '未知错误'}。请确认后端已启动：${apiBaseUrl}`
     authMessageType.value = 'error'
-  } finally {
     authLoading.value = false
   }
 }
@@ -301,18 +404,21 @@ async function refreshRecords() {
   recordsLoading.value = true
   punchMessage.value = ''
   try {
-    if (!currentUser.value?.id) return
+    if (!currentUser.value?.id) {
+      recordsLoading.value = false
+      return
+    }
     const data = await getRecords({ userId: currentUser.value.id })
     if (data.code !== 200) {
       punchMessage.value = data.msg || '同步记录失败。'
       punchMessageType.value = 'error'
-      return
+    } else {
+      records.value = (data.data || []).map((r) => ({
+        ...r,
+        punchAt: new Date(r.punch_time),
+        punch_time: formatDateTime(r.punch_time)
+      }))
     }
-    records.value = (data.data || []).map((r) => ({
-      ...r,
-      punchAt: new Date(r.punch_time),
-      punch_time: formatDateTime(r.punch_time)
-    }))
   } catch (err) {
     punchMessage.value = `同步记录失败：${err?.message || '未知错误'}`
     punchMessageType.value = 'error'
@@ -324,42 +430,73 @@ async function refreshRecords() {
 
 async function punchNow() {
   if (!currentUser.value?.id) return
-  if (todayRecord.value) return
+  if (cooldownRemaining.value > 0) return
 
   punchLoading.value = true
   punchMessage.value = ''
   punchMessageType.value = 'info'
+  console.log('开始签到，用户ID:', currentUser.value.id)
   try {
     const data = await punch({ userId: currentUser.value.id })
+    console.log('签到响应:', data)
     if (data.code === 200) {
-      punchMessage.value = `打卡成功，时间：${data.time}`
+      punchMessage.value = `打卡成功，获得${data.points_gained}分！当前分数：${data.score}`
       punchMessageType.value = 'success'
-      await refreshRecords()
+      userScore.value = data.score
+      lastPunchTime.value = new Date()
+      cooldownRemaining.value = 10
+      punchLoading.value = false
+      console.log('签到成功，分数更新为:', data.score)
+      try {
+        await refreshRecords()
+      } catch (err) {
+        console.error('刷新记录失败:', err)
+      }
       pulsePunch.value = true
       setTimeout(() => {
         pulsePunch.value = false
       }, 900)
+      setTimeout(() => {
+        location.reload()
+      }, 1000)
+      return
+    }
+    if (data.code === 429) {
+      punchMessage.value = data.msg
+      punchMessageType.value = 'warn'
+      punchLoading.value = false
       return
     }
     punchMessage.value = data.msg || '打卡失败。'
     punchMessageType.value = 'error'
+    punchLoading.value = false
   } catch (err) {
+    console.error('签到请求失败:', err)
     punchMessage.value = `打卡失败：${err?.message || '未知错误'}`
     punchMessageType.value = 'error'
-  } finally {
     punchLoading.value = false
   }
 }
+
+let cooldownTimer = null
 
 onMounted(() => {
   timer = setInterval(() => {
     now.value = new Date()
   }, 1000)
+  
+  cooldownTimer = setInterval(() => {
+    if (cooldownRemaining.value > 0) {
+      cooldownRemaining.value--
+    }
+  }, 1000)
+  
   if (currentUser.value?.id) refreshRecords()
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  if (cooldownTimer) clearInterval(cooldownTimer)
 })
 </script>
 
