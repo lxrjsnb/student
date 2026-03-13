@@ -23,6 +23,15 @@
           <span class="nav-item__text">工作台</span>
         </button>
         <button
+          v-if="isSuperAdmin"
+          class="nav-item"
+          :class="{ active: view === 'superAdminDashboard' }"
+          @click="goSuperAdminDashboard"
+        >
+          <span class="nav-item__icon">🎛️</span>
+          <span class="nav-item__text">控制台</span>
+        </button>
+        <button
           v-if="currentUser"
           class="nav-item"
           :class="{ active: view === 'profile' }"
@@ -30,6 +39,14 @@
         >
           <span class="nav-item__icon">👤</span>
           <span class="nav-item__text">个人中心</span>
+        </button>
+        <button
+          v-if="currentUser && !isAdmin"
+          class="nav-item"
+          @click="goAdminApply"
+        >
+          <span class="nav-item__icon">📝</span>
+          <span class="nav-item__text">申请管理员</span>
         </button>
         <button
           v-if="currentUser"
@@ -136,10 +153,34 @@
         @goHome="goHome"
       />
 
+      <SuperAdminDashboard
+        v-else-if="view === 'superAdminDashboard'"
+        @logout="adminLogout"
+        @goUsers="goAdminPanel"
+        @goRecords="goAdminPanel"
+        @goOverview="adminGoOverview"
+        @goApprove="goAdminApprove"
+        @goAdmins="goAdminPanel"
+      />
+
       <AdminPanel
         v-if="view === 'adminPanel'"
         :token="adminToken"
         @logout="adminLogout"
+        @goOverview="adminGoOverview"
+        @goApprove="goAdminApprove"
+        @goDashboard="goSuperAdminDashboard"
+      />
+
+      <AdminApply
+        v-else-if="view === 'adminApply' && currentUser"
+        :user="currentUser"
+        @cancel="goHome"
+        @success="goHome"
+      />
+
+      <AdminApprove
+        v-else-if="view === 'adminApprove'"
       />
 
       <ProfileCard
@@ -159,6 +200,7 @@
         v-else-if="view === 'overview' && currentUser"
         :user="currentUser"
         :records="records"
+        :is-admin="isAdmin"
         @goHome="goHome"
       />
 
@@ -341,6 +383,9 @@ import AdminPanel from './components/AdminPanel.vue'
 import ProfileCard from './components/ProfileCard.vue'
 import ClockIcon from './components/ClockIcon.vue'
 import Overview from './components/Overview.vue'
+import AdminApply from './components/AdminApply.vue'
+import AdminApprove from './components/AdminApprove.vue'
+import SuperAdminDashboard from './components/SuperAdminDashboard.vue'
 
 const STORAGE_KEY_USER = 'punch_user'
 const STORAGE_KEY_USERNAME = 'punch_username'
@@ -382,6 +427,19 @@ const adminMessageType = ref('info')
 const userScore = ref(0)
 const lastPunchTime = ref(null)
 const cooldownRemaining = ref(0)
+const userRole = ref('user')
+
+const isAdmin = computed(() => {
+  if (currentUser.value?.username === 'admin') return true
+  if (currentUser.value?.role) {
+    return ['admin', 'super_admin'].includes(currentUser.value.role)
+  }
+  return false
+})
+
+const isSuperAdmin = computed(() => {
+  return currentUser.value?.username === 'admin' || currentUser.value?.role === 'super_admin'
+})
 
 const latestRecord = computed(() => records.value[0] || null)
 
@@ -652,14 +710,24 @@ async function handleAdminLogin(payload) {
   adminLoading.value = true
   try {
     const data = await login({ username, password })
-    if (data.code === 200 && username === 'admin') {
-      adminToken.value = 'admin_token'
-      localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
-      currentUser.value = null
-      localStorage.removeItem(STORAGE_KEY_USER)
-      view.value = 'adminPanel'
-      adminMessage.value = ''
-      return
+    if (data.code === 200) {
+      if (username === 'admin') {
+        adminToken.value = 'admin_token'
+        localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
+        currentUser.value = { id: 0, username: 'admin', score: 0, role: 'super_admin' }
+        localStorage.removeItem(STORAGE_KEY_USER)
+        view.value = 'superAdminDashboard'
+        adminMessage.value = ''
+        return
+      } else if (data.role === 'admin' || data.role === 'super_admin') {
+        adminToken.value = 'admin_token'
+        localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
+        currentUser.value = { id: data.user_id, username: data.username, score: data.score, role: data.role }
+        localStorage.removeItem(STORAGE_KEY_USER)
+        view.value = data.role === 'super_admin' ? 'superAdminDashboard' : 'adminPanel'
+        adminMessage.value = ''
+        return
+      }
     }
     adminMessage.value = '管理员账号或密码错误。'
     adminMessageType.value = 'error'
@@ -675,6 +743,29 @@ function adminLogout() {
   adminToken.value = ''
   view.value = 'home'
   localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
+}
+
+function adminGoOverview() {
+  adminToken.value = ''
+  currentUser.value = { id: 0, username: 'admin', score: 0, role: 'super_admin' }
+  localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
+  view.value = 'overview'
+}
+
+function goAdminApprove() {
+  view.value = 'adminApprove'
+}
+
+function goAdminPanel() {
+  view.value = 'adminPanel'
+}
+
+function goSuperAdminDashboard() {
+  view.value = 'superAdminDashboard'
+}
+
+function goAdminApply() {
+  view.value = 'adminApply'
 }
 
 let timer = null

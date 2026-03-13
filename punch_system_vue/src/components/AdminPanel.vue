@@ -6,9 +6,20 @@
         <h1 class="admin__title">管理员控制台</h1>
         <p class="admin__sub">查看用户分数与打卡记录（分数通过签到自动获得）</p>
       </div>
-      <button class="btn btn--ghost" type="button" @click="$emit('logout')">
-        退出登录
-      </button>
+      <div class="admin__actions">
+        <button class="btn btn--primary" type="button" @click="$emit('goOverview')">
+          📊 概览
+        </button>
+        <button class="btn btn--success" type="button" @click="$emit('goApprove')">
+          ✍️ 审批申请
+        </button>
+        <button class="btn btn--ghost" type="button" @click="$emit('goDashboard')">
+          🏠 返回控制台
+        </button>
+        <button class="btn btn--ghost" type="button" @click="$emit('logout')">
+          退出登录
+        </button>
+      </div>
     </div>
 
     <div class="admin__content">
@@ -128,7 +139,7 @@ const props = defineProps({
   token: { type: String, required: true }
 })
 
-const emit = defineEmits(['logout'])
+const emit = defineEmits(['logout', 'goOverview', 'goApprove', 'goDashboard'])
 
 const users = ref([])
 const records = ref([])
@@ -280,6 +291,12 @@ onMounted(() => {
   font-size: 13px;
 }
 
+.admin__actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 .admin__content {
   display: grid;
   gap: 20px;
@@ -335,6 +352,26 @@ onMounted(() => {
 
 .btn--ghost:hover {
   border-color: rgba(203, 213, 225, 0.95);
+}
+
+.btn--primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+}
+
+.btn--primary:hover {
+  filter: saturate(1.1);
+}
+
+.btn--success {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+  border: none;
+}
+
+.btn--success:hover {
+  filter: saturate(1.1);
 }
 
 .btn:disabled {

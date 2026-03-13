@@ -5,14 +5,14 @@ from datetime import datetime
 from functools import wraps
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 DB_CONFIG = {
-    'host': '123.56.88.190',
+    'host': 'localhost',
     'port': 3306,
-    'user': 'student',
+    'user': 'root',
     'password': '123456',
-    'database': 'student',
+    'database': 'punch_system',
     'cursorclass': pymysql.cursors.DictCursor
 }
 
@@ -76,7 +76,19 @@ def login():
     conn.close()
 
     if user:
-        return jsonify({'code': 200, 'msg': '登录成功', 'user_id': user['id'], 'username': user['username'], 'score': user.get('score', 0), 'is_admin': False})
+        role = user.get('role', 'user')
+        is_admin = role in ['admin', 'super_admin']
+        is_super_admin = role == 'super_admin'
+        return jsonify({
+            'code': 200, 
+            'msg': '登录成功', 
+            'user_id': user['id'], 
+            'username': user['username'], 
+            'score': user.get('score', 0), 
+            'is_admin': is_admin,
+            'is_super_admin': is_super_admin,
+            'role': role
+        })
     else:
         return jsonify({'code': 401, 'msg': '用户名或密码错误'}), 401
 
@@ -150,7 +162,14 @@ def admin_login():
     password = data.get('password')
 
     if username == ADMIN_CREDENTIALS['username'] and password == ADMIN_CREDENTIALS['password']:
-        return jsonify({'code': 200, 'msg': '登录成功', 'token': 'admin_token'})
+        return jsonify({
+            'code': 200, 
+            'msg': '登录成功', 
+            'token': 'admin_token',
+            'role': 'super_admin',
+            'is_admin': True,
+            'is_super_admin': True
+        })
     else:
         return jsonify({'code': 401, 'msg': '用户名或密码错误'}), 401
 
@@ -224,6 +243,138 @@ def update_user_score(user_id):
     conn.close()
 
     return jsonify({'code': 200, 'msg': '分数修改成功', 'score': score})
+
+# 6. 申请管理员接口
+@app.route('/admin/apply', methods=['POST'])
+def apply_admin():
+    data = request.json
+    user_id = data.get('user_id')
+    username = data.get('username')
+    reason = data.get('reason')
+
+    print(f"收到管理员申请请求: user_id={user_id}, username={username}, reason={reason}")
+
+    if not user_id or not username or not reason:
+        return jsonify({'code': 400, 'msg': '缺少必要参数'}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 检查用户是否已经有待处理的申请
+        try:
+            cursor.execute('SELECT * FROM admin_applications WHERE user_id = %s AND status = %s', (user_id, 'pending'))
+            existing = cursor.fetchone()
+            if existing:
+                return jsonify({'code': 400, 'msg': '您已有待处理的申请，请等待审批'}), 400
+        except Exception as e:
+            print(f"查询admin_applications表失败: {e}")
+            return jsonify({'code': 500, 'msg': f'数据库表不存在或查询失败：{str(e)}'}), 500
+        
+        # 检查用户是否已经是管理员
+        cursor.execute('SELECT role FROM users WHERE id = %s', (user_id,))
+        user = cursor.fetchone()
+        if user and user.get('role') in ['admin', 'super_admin']:
+            return jsonify({'code': 400, 'msg': '您已经是管理员'}), 400
+        
+        # 创建申请
+        cursor.execute('INSERT INTO admin_applications (user_id, username, reason) VALUES (%s, %s, %s)', 
+                    (user_id, username, reason))
+        conn.commit()
+        
+        print(f"管理员申请创建成功: user_id={user_id}")
+        return jsonify({'code': 200, 'msg': '申请已提交，请等待超级管理员审批'})
+    except Exception as e:
+        print(f"申请管理员失败: {e}")
+        return jsonify({'code': 500, 'msg': f'申请失败：{str(e)}'}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+# 7. 获取管理员申请列表接口
+@app.route('/admin/applications', methods=['GET'])
+@admin_required
+def get_admin_applications():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM admin_applications ORDER BY created_at DESC')
+    applications = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify({'code': 200, 'data': applications})
+
+# 8. 审批管理员申请接口
+@app.route('/admin/approve', methods=['POST'])
+@admin_required
+def approve_admin():
+    data = request.json
+    application_id = data.get('application_id')
+    action = data.get('action')  # 'approve' or 'reject'
+
+    if not application_id or not action:
+        return jsonify({'code': 400, 'msg': '缺少必要参数'}), 400
+
+    if action not in ['approve', 'reject']:
+        return jsonify({'code': 400, 'msg': '无效的操作'}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 获取申请信息
+        cursor.execute('SELECT * FROM admin_applications WHERE id = %s', (application_id,))
+        application = cursor.fetchone()
+        if not application:
+            return jsonify({'code': 404, 'msg': '申请不存在'}), 400
+        
+        if application['status'] != 'pending':
+            return jsonify({'code': 400, 'msg': '该申请已被处理'}), 400
+        
+        # 更新申请状态
+        new_status = 'approved' if action == 'approve' else 'rejected'
+        cursor.execute('UPDATE admin_applications SET status = %s WHERE id = %s', (new_status, application_id))
+        
+        # 如果批准，更新用户角色
+        if action == 'approve':
+            cursor.execute('UPDATE users SET role = %s WHERE id = %s', ('admin', application['user_id']))
+        
+        conn.commit()
+        msg = '申请已批准' if action == 'approve' else '申请已拒绝'
+        return jsonify({'code': 200, 'msg': msg})
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': f'审批失败：{str(e)}'}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+# 9. 获取用户角色接口
+@app.route('/user/role/<int:user_id>', methods=['GET'])
+def get_user_role(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT role FROM users WHERE id = %s', (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not user:
+        return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+
+    role = user.get('role', 'user')
+    is_admin = role in ['admin', 'super_admin']
+    is_super_admin = role == 'super_admin'
+
+    return jsonify({
+        'code': 200, 
+        'role': role,
+        'is_admin': is_admin,
+        'is_super_admin': is_super_admin
+    })
 
 # 启动后端服务
 if __name__ == '__main__':

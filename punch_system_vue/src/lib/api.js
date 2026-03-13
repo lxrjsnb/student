@@ -67,3 +67,27 @@ export async function updateUserScore({ token, userId, score }) {
   })
   return res.data
 }
+
+export async function applyForAdmin({ userId, username, reason }) {
+  const res = await api.post('/admin/apply', { user_id: userId, username, reason })
+  return res.data
+}
+
+export async function getAdminApplications({ token }) {
+  const res = await adminApi.get('/admin/applications', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function approveAdminApplication({ token, applicationId, action }) {
+  const res = await adminApi.post('/admin/approve', { application_id: applicationId, action }, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function getUserRole({ userId }) {
+  const res = await api.get(`/user/role/${userId}`)
+  return res.data
+}
