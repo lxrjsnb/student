@@ -3,47 +3,7 @@
 
   <div class="app-container">
     <main class="page">
-      <div v-if="currentUser && view !== 'adminLogin' && view !== 'adminPanel'" class="top-bar">
-        <div class="top-bar__left">
-          <div class="user-info">
-            <div class="user-avatar">
-              <span class="avatar-text">{{ currentUser.username.charAt(0).toUpperCase() }}</span>
-            </div>
-            <div class="user-details">
-              <p class="user-name">{{ currentUser.username }}</p>
-              <p class="user-id">ID: {{ currentUser.id }}</p>
-            </div>
-          </div>
-        </div>
-        <div class="top-bar__center">
-          <div class="info-bar">
-            <div class="info-item">
-              <span class="info-icon">📅</span>
-              <span class="info-label">日期</span>
-              <span class="info-value">{{ currentDate }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-icon">⏰</span>
-              <span class="info-label">时间</span>
-              <span class="info-value">{{ currentTime }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-icon">🌤️</span>
-              <span class="info-label">天气</span>
-              <span class="info-value">晴</span>
-            </div>
-          </div>
-        </div>
-        <div class="top-bar__right">
-          <div class="status-indicator">
-            <span class="status-dot status-dot--online"></span>
-            <span class="status-text">在线</span>
-          </div>
-        </div>
-      </div>
-
       <div v-if="!currentUser && view !== 'adminLogin' && view !== 'adminPanel'" class="login-container">
-        <div class="login-bgFX" aria-hidden="true"></div>
         <AuthCard
           :mode="authMode"
           :loading="authLoading"
@@ -69,6 +29,8 @@
       <SuperAdminDashboard
         v-else-if="view === 'superAdminDashboard'"
         :isSuperAdmin="isSuperAdmin"
+        :token="adminToken"
+        :role="currentUser?.role || 'user'"
         @logout="adminLogout"
         @goUsers="goAdminPanel"
         @goRecords="goAdminPanel"
@@ -100,18 +62,24 @@
         :role="currentUser?.role || 'user'"
       />
 
-      <ProfileCard
-        v-else-if="view === 'profile'"
+      <ActivityDetail v-else-if="view === 'activityDetail' && currentUser" :activity="selectedActivity" @back="goActivities" />
+
+      <ActivitiesList v-else-if="view === 'activities' && currentUser" :activities="activities" @open="openActivity" />
+
+      <ProfileView
+        v-else-if="view === 'profile' && currentUser"
         :user="currentUser"
-        :today-record="todayRecord"
-        :latest="latestRecord"
-        :total="records.length"
-        :preview="records.slice(0, 5)"
-        :records-loaded="recordsLoaded"
-        @goHome="goHome"
-        @goRecords="openRecordsModal"
+        :total-records="records.length"
+        :today-count="records.length"
+        :latest-record="latestRecord"
+        :refreshing="recordsLoading"
+        @openHistory="openRecords"
+        @openSettings="goSettings"
+        @refresh="refreshRecords"
         @logout="logout"
       />
+
+      <SettingsView v-else-if="view === 'settings' && currentUser" :user="currentUser" @back="goProfile" @updated="applyUserPatch" />
 
       <Overview
         v-else-if="view === 'overview' && currentUser"
@@ -121,192 +89,58 @@
         @goHome="goHome"
       />
 
-      <div v-else-if="view === 'home' && currentUser" class="dashboard">
-        <div class="dashboard__header">
-          <h2 class="dashboard__title">工作台</h2>
-          <p class="dashboard__subtitle">欢迎使用智慧校园考勤管理系统</p>
-        </div>
+      <PunchHome
+        v-else-if="view === 'home' && currentUser"
+        :user="currentUser"
+        :loading="punchLoading"
+        :disabled="punchDisabled"
+        :cooldown-remaining="cooldownRemaining"
+        :message="punchMessageType === 'success' ? '' : punchMessage"
+        :message-type="punchMessageType"
+        @punch="punchNow"
+        @openHistory="openRecords"
+      />
 
-        <div class="dashboard__stats">
-          <div class="stat-card">
-            <div class="stat-icon stat-icon--primary">📊</div>
-            <div class="stat-content">
-              <p class="stat-label">今日签到</p>
-              <p class="stat-value">{{ records.length }} 次</p>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon stat-icon--success">⭐</div>
-            <div class="stat-content">
-              <p class="stat-label">当前积分</p>
-              <p class="stat-value">{{ userScore.toFixed(1) }} 分</p>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon stat-icon--warning">📈</div>
-            <div class="stat-content">
-              <p class="stat-label">本月签到</p>
-              <p class="stat-value">{{ records.length }} 次</p>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon stat-icon--info">🎯</div>
-            <div class="stat-content">
-              <p class="stat-label">连续签到</p>
-              <p class="stat-value">{{ records.length > 0 ? 1 : 0 }} 天</p>
-            </div>
-          </div>
-        </div>
+      <BottomNav v-if="showMainNav" :current="view" @navigate="navigateMain" />
 
-        <div class="dashboard__main">
-          <div class="main-section">
-            <div class="section-card">
-              <div class="card-header">
-                <h3 class="card-title">📝 考勤签到</h3>
-                <p class="card-subtitle">每次签到获得0.5分，间隔10秒可再次签到</p>
-              </div>
-              <div class="card-body">
-                <div class="punch-status">
-                  <div class="status-item">
-                    <span class="status-label">当前账号</span>
-                    <span class="status-value">{{ currentUser.username }}</span>
-                  </div>
-                  <div class="status-item">
-                    <span class="status-label">当前分数</span>
-                    <span class="status-value score">{{ userScore.toFixed(1) }}</span>
-                  </div>
-                  <div class="status-item">
-                    <span class="status-label">今日签到</span>
-                    <span class="status-value">{{ records.length }} 次</span>
-                  </div>
-                </div>
-                <button class="punch-button" :class="{ 'punch-button--disabled': punchDisabled }" @click="punchNow">
-                  <span class="punch-icon">👆</span>
-                  <span class="punch-text">
-                    {{ cooldownRemaining > 0 ? `冷却中 (${cooldownRemaining}s)` : (punchLoading ? '处理中…' : '立即签到') }}
-                  </span>
-                </button>
-                <div v-if="punchMessage" class="punch-message" :class="`punch-message--${punchMessageType}`">
-                  {{ punchMessage }}
-                </div>
-              </div>
-            </div>
+      <RecordsModal :open="recordsOpen" :records="records" :loading="recordsLoading" @close="recordsOpen = false" />
 
-            <div class="section-card">
-              <div class="card-header">
-                <h3 class="card-title">📢 系统公告</h3>
-              </div>
-              <div class="card-body">
-                <div class="notice-list">
-                  <div class="notice-item">
-                    <div class="notice-icon">📢</div>
-                    <div class="notice-content">
-                      <p class="notice-title">欢迎使用智慧校园考勤系统</p>
-                      <p class="notice-time">2024-01-01</p>
-                    </div>
-                  </div>
-                  <div class="notice-item">
-                    <div class="notice-icon">📢</div>
-                    <div class="notice-content">
-                      <p class="notice-title">签到规则：每次签到获得0.5分</p>
-                      <p class="notice-time">2024-01-01</p>
-                    </div>
-                  </div>
-                  <div class="notice-item">
-                    <div class="notice-icon">📢</div>
-                    <div class="notice-content">
-                      <p class="notice-title">系统已升级至v1.0.0版本</p>
-                      <p class="notice-time">2024-01-01</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="side-section">
-            <div class="section-card">
-              <div class="card-header">
-                <h3 class="card-title">⚡ 快捷操作</h3>
-              </div>
-              <div class="card-body">
-                <div class="quick-actions">
-                  <button class="quick-action" @click="refreshRecords" :disabled="recordsLoading">
-                    <span class="quick-icon">🔄</span>
-                    <span class="quick-text">{{ recordsLoading ? '刷新中…' : '同步记录' }}</span>
-                  </button>
-                  <button class="quick-action" @click="openRecordsModal">
-                    <span class="quick-icon">📋</span>
-                    <span class="quick-text">查看记录</span>
-                  </button>
-                  <button class="quick-action" @click="goProfile">
-                    <span class="quick-icon">👤</span>
-                    <span class="quick-text">个人中心</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="section-card">
-              <div class="card-header">
-                <h3 class="card-title">📊 数据统计</h3>
-              </div>
-              <div class="card-body">
-                <div class="data-list">
-                  <div class="data-item">
-                    <span class="data-icon">⏰</span>
-                    <div class="data-content">
-                      <p class="data-label">当前时间</p>
-                      <p class="data-value">{{ nowText }}</p>
-                    </div>
-                  </div>
-                  <div class="data-item">
-                    <span class="data-icon">📊</span>
-                    <div class="data-content">
-                      <p class="data-label">签到次数</p>
-                      <p class="data-value">{{ records.length }} 次</p>
-                    </div>
-                  </div>
-                  <div class="data-item">
-                    <span class="data-icon">⭐</span>
-                    <div class="data-content">
-                      <p class="data-label">当前分数</p>
-                      <p class="data-value">{{ userScore.toFixed(1) }} 分</p>
-                    </div>
-                  </div>
-                  <div class="data-item" v-if="latestRecord">
-                    <span class="data-icon">🕐</span>
-                    <div class="data-content">
-                      <p class="data-label">上次签到</p>
-                      <p class="data-value">{{ formatDateTime(latestRecord.punch_time) }}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <SuccessQuoteModal
+        :open="successOpen"
+        :quote="successQuote.text"
+        :from="successQuote.from"
+        @close="successOpen = false"
+      />
     </main>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { login, register, punch, getRecords } from './lib/api'
+import { adminLogin, login, logout as apiLogout, me, punch, getRecords, register } from './lib/api'
 import AuthCard from './components/AuthCard.vue'
 import AdminLogin from './components/AdminLogin.vue'
 import AdminPanel from './components/AdminPanel.vue'
-import ProfileCard from './components/ProfileCard.vue'
-import ClockIcon from './components/ClockIcon.vue'
 import Overview from './components/Overview.vue'
 import AdminApply from './components/AdminApply.vue'
 import AdminApprove from './components/AdminApprove.vue'
 import SuperAdminDashboard from './components/SuperAdminDashboard.vue'
+import PunchHome from './components/PunchHome.vue'
+import BottomNav from './components/BottomNav.vue'
+import RecordsModal from './components/RecordsModal.vue'
+import SuccessQuoteModal from './components/SuccessQuoteModal.vue'
+import ActivitiesList from './components/ActivitiesList.vue'
+import ActivityDetail from './components/ActivityDetail.vue'
+import ProfileView from './components/ProfileView.vue'
+import SettingsView from './components/SettingsView.vue'
+import { ACTIVITIES } from './lib/activities'
+import { getNextQuote } from './lib/quotes'
 
 const STORAGE_KEY_USER = 'punch_user'
 const STORAGE_KEY_USERNAME = 'punch_username'
 const STORAGE_KEY_ADMIN_TOKEN = 'punch_admin_token'
+
+const LOGIN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 const apiBaseUrl = import.meta.env?.VITE_API_BASE_URL?.trim() || 'http://127.0.0.1:5000'
 
@@ -329,6 +163,21 @@ const pulsePunch = ref(false)
 const punchLoading = ref(false)
 const punchMessage = ref('')
 const punchMessageType = ref('info')
+const recordsOpen = ref(false)
+
+const successOpen = ref(false)
+const successQuote = ref({ text: '', from: '' })
+
+const activities = ref(ACTIVITIES)
+const selectedActivityId = ref('')
+const selectedActivity = computed(() => activities.value.find((a) => a.id === selectedActivityId.value) || null)
+
+const showMainNav = computed(() => {
+  if (!currentUser.value) return false
+  if (view.value === 'adminLogin' || view.value === 'adminPanel' || view.value === 'superAdminDashboard') return false
+  if (view.value === 'adminApprove' || view.value === 'adminApply') return false
+  return ['home', 'activities', 'profile'].includes(view.value)
+})
 
 const records = ref([])
 const recordsLoaded = ref(false)
@@ -341,13 +190,11 @@ const adminLoading = ref(false)
 const adminMessage = ref('')
 const adminMessageType = ref('info')
 
-const userScore = ref(0)
 const lastPunchTime = ref(null)
 const cooldownRemaining = ref(0)
 const userRole = ref('user')
 
 const isAdmin = computed(() => {
-  if (currentUser.value?.username === 'admin') return true
   if (currentUser.value?.role) {
     return ['admin', 'super_admin'].includes(currentUser.value.role)
   }
@@ -355,7 +202,7 @@ const isAdmin = computed(() => {
 })
 
 const isSuperAdmin = computed(() => {
-  return currentUser.value?.username === 'admin' || currentUser.value?.role === 'super_admin'
+  return currentUser.value?.role === 'super_admin'
 })
 
 const latestRecord = computed(() => records.value[0] || null)
@@ -396,9 +243,16 @@ function loadUserFromStorage() {
     const raw = localStorage.getItem(STORAGE_KEY_USER)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (!parsed?.id || !parsed?.username) return null
-    if (parsed.score !== undefined) {
-      userScore.value = parseFloat(parsed.score) || 0
+    if (parsed?.id === undefined || parsed?.id === null) return null
+    if (!parsed?.username) return null
+
+    if (parsed._expiresAt && Date.now() > parsed._expiresAt) {
+      localStorage.removeItem(STORAGE_KEY_USER)
+      return null
+    }
+    if (!parsed._expiresAt) {
+      parsed._expiresAt = Date.now() + LOGIN_TTL_MS
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(parsed))
     }
     return parsed
   } catch {
@@ -420,13 +274,31 @@ function goProfile() {
   view.value = 'profile'
 }
 
+function goSettings() {
+  view.value = 'settings'
+}
+
+function goActivities() {
+  view.value = 'activities'
+}
+
 function goOverview() {
   view.value = 'overview'
 }
 
-function openRecordsModal() {
-  if (!currentUser.value) return
-  view.value = 'home'
+function navigateMain(target) {
+  if (target === 'home') goHome()
+  if (target === 'activities') goActivities()
+  if (target === 'profile') goProfile()
+}
+
+function openActivity(activityId) {
+  selectedActivityId.value = activityId
+  view.value = 'activityDetail'
+}
+
+function openRecords() {
+  recordsOpen.value = true
   if (!recordsLoaded.value && !recordsLoading.value) refreshRecords()
 }
 
@@ -443,13 +315,12 @@ function setUser(user, remember) {
   console.log('setUser 前，currentUser.value:', currentUser.value)
   currentUser.value = { ...user }
   console.log('setUser 后，currentUser.value:', currentUser.value)
-  if (user.score !== undefined) {
-    userScore.value = parseFloat(user.score) || 0
-  }
   view.value = 'home'
   if (remember) {
-    localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user))
-    localStorage.setItem(STORAGE_KEY_USERNAME, user.username)
+    const toStore = { ...user }
+    if (!toStore._expiresAt) toStore._expiresAt = Date.now() + LOGIN_TTL_MS
+    localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(toStore))
+    localStorage.setItem(STORAGE_KEY_USERNAME, toStore.username)
   } else {
     localStorage.removeItem(STORAGE_KEY_USER)
     localStorage.setItem(STORAGE_KEY_USERNAME, user.username)
@@ -457,7 +328,21 @@ function setUser(user, remember) {
   rememberedUsername.value = user.username
 }
 
+function applyUserPatch(patch) {
+  if (!currentUser.value) return
+  currentUser.value = { ...currentUser.value, ...patch }
+  if (patch?.username) {
+    rememberedUsername.value = patch.username
+    localStorage.setItem(STORAGE_KEY_USERNAME, patch.username)
+  }
+  const stored = localStorage.getItem(STORAGE_KEY_USER)
+  if (stored) localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(currentUser.value))
+}
+
 function logout() {
+  if (currentUser.value?.sessionToken) {
+    apiLogout({ sessionToken: currentUser.value.sessionToken }).catch(() => {})
+  }
   currentUser.value = null
   view.value = 'home'
   records.value = []
@@ -467,6 +352,8 @@ function logout() {
   lastPunchTime.value = null
   cooldownRemaining.value = 0
   localStorage.removeItem(STORAGE_KEY_USER)
+  adminToken.value = ''
+  localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
 }
 
 function goAdminLogin() {
@@ -512,17 +399,24 @@ async function handleAuth(payload) {
     const data = await login({ username, password })
     console.log('登录响应:', data)
     if (data.code === 200) {
-      console.log('登录成功，用户数据:', { id: data.user_id, username: data.username, score: data.score, role: data.role })
+      console.log('登录成功，用户数据:', { id: data.user_id, username: data.username, role: data.role })
       
       if (data.role === 'admin' || data.role === 'super_admin') {
-        adminToken.value = 'admin_token'
-        localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
+        adminToken.value = data.session_token || ''
+        if (adminToken.value) localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, adminToken.value)
       } else {
         adminToken.value = ''
         localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
       }
       
-      setUser({ id: data.user_id, username: data.username, score: data.score, role: data.role }, payload.remember)
+      setUser({
+        id: data.user_id,
+        nickname: data.nickname || data.username,
+        username: data.username,
+        role: data.role,
+        sessionToken: data.session_token || '',
+        _expiresAt: data.session_expires_at ? new Date(data.session_expires_at).getTime() : Date.now() + LOGIN_TTL_MS
+      }, payload.remember)
       authMessage.value = ''
       authLoading.value = false
       console.log('设置用户后，currentUser:', currentUser.value)
@@ -552,13 +446,17 @@ async function refreshRecords() {
       recordsLoading.value = false
       return
     }
-    const data = await getRecords({ userId: currentUser.value.id })
+    const data = await getRecords({
+      userId: currentUser.value.id,
+      sessionToken: currentUser.value.sessionToken
+    })
     if (data.code !== 200) {
       punchMessage.value = data.msg || '同步记录失败。'
       punchMessageType.value = 'error'
     } else {
       records.value = (data.data || []).map((r) => ({
         ...r,
+        punch_time_raw: r.punch_time,
         punchAt: new Date(r.punch_time),
         punch_time: formatDateTime(r.punch_time)
       }))
@@ -581,16 +479,17 @@ async function punchNow() {
   punchMessageType.value = 'info'
   console.log('开始签到，用户ID:', currentUser.value.id)
   try {
-    const data = await punch({ userId: currentUser.value.id })
+    const data = await punch({
+      userId: currentUser.value.id,
+      sessionToken: currentUser.value.sessionToken
+    })
     console.log('签到响应:', data)
     if (data.code === 200) {
-      punchMessage.value = `打卡成功，获得${data.points_gained}分！当前分数：${data.score}`
+      punchMessage.value = ''
       punchMessageType.value = 'success'
-      userScore.value = parseFloat(data.score) || 0
       lastPunchTime.value = new Date()
       cooldownRemaining.value = 10
       punchLoading.value = false
-      console.log('签到成功，分数更新为:', data.score)
       try {
         await refreshRecords()
       } catch (err) {
@@ -600,6 +499,9 @@ async function punchNow() {
       setTimeout(() => {
         pulsePunch.value = false
       }, 900)
+
+      successQuote.value = getNextQuote()
+      successOpen.value = true
       return
     }
     if (data.code === 429) {
@@ -633,27 +535,25 @@ async function handleAdminLogin(payload) {
 
   adminLoading.value = true
   try {
-    const data = await login({ username, password })
+    const data = await adminLogin({ username, password })
     if (data.code === 200) {
-      if (username === 'admin') {
-        adminToken.value = 'admin_token'
-        localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
-        currentUser.value = { id: 0, username: 'admin', score: 0, role: 'super_admin' }
-        localStorage.removeItem(STORAGE_KEY_USER)
-        view.value = 'superAdminDashboard'
-        adminMessage.value = ''
-        return
-      } else if (data.role === 'admin' || data.role === 'super_admin') {
-        adminToken.value = 'admin_token'
-        localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, 'admin_token')
-        currentUser.value = { id: data.user_id, username: data.username, score: data.score, role: data.role }
-        localStorage.removeItem(STORAGE_KEY_USER)
-        view.value = data.role === 'super_admin' ? 'superAdminDashboard' : 'adminPanel'
-        adminMessage.value = ''
-        return
+      adminToken.value = data.session_token || ''
+      if (adminToken.value) localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, adminToken.value)
+
+      const user = {
+        id: data.user_id,
+        username: data.username,
+        role: data.role,
+        sessionToken: data.session_token || '',
+        _expiresAt: data.session_expires_at ? new Date(data.session_expires_at).getTime() : Date.now() + LOGIN_TTL_MS
       }
+      currentUser.value = user
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user))
+      view.value = data.role === 'super_admin' ? 'superAdminDashboard' : 'adminPanel'
+      adminMessage.value = ''
+      return
     }
-    adminMessage.value = '管理员账号或密码错误。'
+    adminMessage.value = data.msg || '管理员账号或密码错误。'
     adminMessageType.value = 'error'
   } catch (err) {
     adminMessage.value = `请求失败：${err?.message || '未知错误'}。请确认后端已启动：${apiBaseUrl}`
@@ -664,15 +564,17 @@ async function handleAdminLogin(payload) {
 }
 
 function adminLogout() {
+  if (currentUser.value?.sessionToken) {
+    apiLogout({ sessionToken: currentUser.value.sessionToken }).catch(() => {})
+  }
   adminToken.value = ''
+  currentUser.value = null
   view.value = 'home'
   localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
+  localStorage.removeItem(STORAGE_KEY_USER)
 }
 
 function adminGoOverview() {
-  adminToken.value = ''
-  currentUser.value = { id: 0, username: 'admin', score: 0, role: 'super_admin' }
-  localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
   view.value = 'overview'
 }
 
@@ -702,8 +604,18 @@ function goAdminApply() {
 
 let timer = null
 let cooldownTimer = null
+let reloginListener = null
 
 onMounted(() => {
+  reloginListener = (event) => {
+    const msg = event?.detail?.msg || '登录已过期，请重新登录'
+    logout()
+    authMode.value = 'login'
+    authMessageType.value = 'error'
+    authMessage.value = msg
+  }
+  window.addEventListener('auth:relogin-required', reloginListener)
+
   timer = setInterval(() => {
     now.value = new Date()
   }, 1000)
@@ -715,11 +627,25 @@ onMounted(() => {
   }, 1000)
   
   if (currentUser.value?.id) refreshRecords()
+  if (currentUser.value?.sessionToken) {
+    me({ sessionToken: currentUser.value.sessionToken })
+      .then((data) => {
+        if (data.code === 200) {
+          applyUserPatch({ nickname: data.nickname || data.username, username: data.username, role: data.role })
+        } else if (data.code === 401) {
+          logout()
+        }
+      })
+      .catch(() => {
+        // 忽略：后端可能尚未启用 /me 或 user_sessions
+      })
+  }
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (cooldownTimer) clearInterval(cooldownTimer)
+  if (reloginListener) window.removeEventListener('auth:relogin-required', reloginListener)
 })
 </script>
 
@@ -1029,11 +955,6 @@ onBeforeUnmount(() => {
   color: #1e293b;
 }
 
-.status-value.score {
-  color: #3b82f6;
-  font-size: 22px;
-}
-
 .punch-button {
   width: 100%;
   padding: 20px;
@@ -1221,60 +1142,6 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.bgFX {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  width: 100vw;
-  height: 100vh;
-  min-width: 100vw;
-  min-height: 100vh;
-  background: radial-gradient(circle at center, #0a192f 0%, #001233 100%);
-  overflow: hidden;
-}
-
-.bgFX::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: 
-    radial-gradient(circle at 20% 30%, rgba(66, 153, 225, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 80% 70%, rgba(66, 153, 225, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 40% 80%, rgba(66, 153, 225, 0.05) 0%, transparent 50%);
-  animation: pulse 10s ease-in-out infinite;
-}
-
-.bgFX::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: 
-    linear-gradient(135deg, transparent 20%, rgba(66, 153, 225, 0.05) 20%, rgba(66, 153, 225, 0.05) 25%, transparent 25%, transparent 75%, rgba(66, 153, 225, 0.05) 75%, rgba(66, 153, 225, 0.05) 80%, transparent 80%),
-    linear-gradient(45deg, transparent 48%, rgba(66, 153, 225, 0.1) 48%, rgba(66, 153, 225, 0.1) 52%, transparent 52%);
-  background-size: 100px 100px, 50px 50px;
-  opacity: 0.3;
-  animation: gridMove 20s linear infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
-
-@keyframes gridMove {
-  0% {
-    transform: translate(0, 0);
-  }
-  100% {
-    transform: translate(100px, 100px);
-  }
-}
-
 @media (max-width: 768px) {
   .sidebar {
     position: fixed;
@@ -1302,8 +1169,8 @@ onBeforeUnmount(() => {
 
 <style>
 :root {
-  --primary: #3b82f6;
-  --primary-dark: #2563eb;
+  --primary: #00a8cc;
+  --primary-dark: #008ba8;
   --success: #22c55e;
   --success-bg: rgba(34, 197, 94, 0.1);
   --success-ink: #15803d;
@@ -1328,13 +1195,11 @@ onBeforeUnmount(() => {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: transparent;
+  font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--app-bg, linear-gradient(135deg, #a8edea 0%, #fed6e3 100%));
   min-height: 100vh;
   color: var(--text);
 }
-
-
 
 .login-container {
   position: fixed;
@@ -1343,428 +1208,6 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 10;
-}
-
-.login-bgFX {
-  position: fixed;
-  inset: -80px;
-  z-index: -1;
-  pointer-events: none;
-  width: 100%;
-  height: 100%;
-  background-color: #111;
-  background-image: linear-gradient(
-      to top,
-      #d2b48c 5%,
-      #111 6%,
-      #111 7%,
-      transparent 7%
-    ),
-    linear-gradient(to bottom, #111 30%, transparent 80%),
-    linear-gradient(to right, #b22222, #871a1a 5%, transparent 5%),
-    linear-gradient(
-      to right,
-      transparent 6%,
-      #ff6347 6%,
-      #ff3814 9%,
-      transparent 9%
-    ),
-    linear-gradient(
-      to right,
-      transparent 27%,
-      #556b2f 27%,
-      #39481f 34%,
-      transparent 34%
-    ),
-    linear-gradient(
-      to right,
-      transparent 51%,
-      #fa8072 51%,
-      #f85441 57%,
-      transparent 57%
-    ),
-    linear-gradient(to bottom, #111 35%, transparent 35%),
-    linear-gradient(
-      to right,
-      transparent 42%,
-      #008080 42%,
-      #004d4d 44%,
-      transparent 44%
-    ),
-    linear-gradient(
-      to right,
-      transparent 45%,
-      #008080 45%,
-      #004d4d 47%,
-      transparent 47%
-    ),
-    linear-gradient(
-      to right,
-      transparent 48%,
-      #008080 48%,
-      #004d4d 50%,
-      transparent 50%
-    ),
-    linear-gradient(
-      to right,
-      transparent 87%,
-      #789 87%,
-      #4f5d6a 91%,
-      transparent 91%
-    ),
-    linear-gradient(to bottom, #111 37.5%, transparent 37.5%),
-    linear-gradient(
-      to right,
-      transparent 14%,
-      #bdb76b 14%,
-      #989244 20%,
-      transparent 20%
-    ),
-    linear-gradient(to bottom, #111 40%, transparent 40%),
-    linear-gradient(
-      to right,
-      transparent 10%,
-      #808000 10%,
-      #4d4d00 13%,
-      transparent 13%
-    ),
-    linear-gradient(
-      to right,
-      transparent 21%,
-      #8b4513 21%,
-      #5e2f0d 25%,
-      transparent 25%
-    ),
-    linear-gradient(
-      to right,
-      transparent 58%,
-      #8b4513 58%,
-      #5e2f0d 64%,
-      transparent 64%
-    ),
-    linear-gradient(
-      to right,
-      transparent 92%,
-      #2f4f4f 92%,
-      #1c2f2f 95%,
-      transparent 95%
-    ),
-    linear-gradient(to bottom, #111 48%, transparent 48%),
-    linear-gradient(
-      to right,
-      transparent 96%,
-      #2f4f4f 96%,
-      #1c2f2f 99%,
-      transparent 99%
-    ),
-    linear-gradient(
-      to bottom,
-      transparent 68.5%,
-      transparent 76%,
-      #111 76%,
-      #111 77.5%,
-      transparent 77.5%,
-      transparent 86%,
-      #111 86%,
-      #111 87.5%,
-      transparent 87.5%
-    ),
-    linear-gradient(
-      to right,
-      transparent 35%,
-      #cd5c5c 35%,
-      #bc3a3a 41%,
-      transparent 41%
-    ),
-    linear-gradient(to bottom, #111 68%, transparent 68%),
-    linear-gradient(
-      to right,
-      transparent 78%,
-      #bc8f8f 78%,
-      #bc8f8f 80%,
-      transparent 80%,
-      transparent 82%,
-      #bc8f8f 82%,
-      #bc8f8f 83%,
-      transparent 83%
-    ),
-    linear-gradient(
-      to right,
-      transparent 66%,
-      #a52a2a 66%,
-      #7c2020 85%,
-      transparent 85%
-    );
-  background-size: 300px 150px;
-  background-position: center bottom;
-}
-
-.login-bgFX::before {
-  content: "";
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  inset: 0;
-  background-color: #111;
-  background-image: linear-gradient(
-      to top,
-      #d2b48c 5%,
-      #111 6%,
-      #111 7%,
-      transparent 7%
-    ),
-    linear-gradient(to bottom, #111 30%, transparent 30%),
-    linear-gradient(to right, #b22222, #871a1a 5%, transparent 5%),
-    linear-gradient(
-      to right,
-      transparent 6%,
-      #ff6347 6%,
-      #ff3814 9%,
-      transparent 9%
-    ),
-    linear-gradient(
-      to right,
-      transparent 27%,
-      #556b2f 27%,
-      #39481f 34%,
-      transparent 34%
-    ),
-    linear-gradient(
-      to right,
-      transparent 51%,
-      #fa8072 51%,
-      #f85441 57%,
-      transparent 57%
-    ),
-    linear-gradient(to bottom, #111 35%, transparent 35%),
-    linear-gradient(
-      to right,
-      transparent 42%,
-      #008080 42%,
-      #004d4d 44%,
-      transparent 44%
-    ),
-    linear-gradient(
-      to right,
-      transparent 45%,
-      #008080 45%,
-      #004d4d 47%,
-      transparent 47%
-    ),
-    linear-gradient(
-      to right,
-      transparent 48%,
-      #008080 48%,
-      #004d4d 50%,
-      transparent 50%
-    ),
-    linear-gradient(
-      to right,
-      transparent 87%,
-      #789 87%,
-      #4f5d6a 91%,
-      transparent 91%
-    ),
-    linear-gradient(to bottom, #111 37.5%, transparent 37.5%),
-    linear-gradient(
-      to right,
-      transparent 14%,
-      #bdb76b 14%,
-      #989244 20%,
-      transparent 20%
-    ),
-    linear-gradient(to bottom, #111 40%, transparent 40%),
-    linear-gradient(
-      to right,
-      transparent 10%,
-      #808000 10%,
-      #4d4d00 13%,
-      transparent 13%
-    ),
-    linear-gradient(
-      to right,
-      transparent 21%,
-      #8b4513 21%,
-      #5e2f0d 25%,
-      transparent 25%
-    ),
-    linear-gradient(
-      to right,
-      transparent 58%,
-      #8b4513 58%,
-      #5e2f0d 64%,
-      transparent 64%
-    ),
-    linear-gradient(
-      to right,
-      transparent 92%,
-      #2f4f4f 92%,
-      #1c2f2f 95%,
-      transparent 95%
-    ),
-    linear-gradient(to bottom, #111 48%, transparent 48%),
-    linear-gradient(
-      to right,
-      transparent 96%,
-      #2f4f4f 96%,
-      #1c2f2f 99%,
-      transparent 99%
-    ),
-    linear-gradient(
-      to bottom,
-      transparent 68.5%,
-      transparent 76%,
-      #111 76%,
-      #111 77.5%,
-      transparent 77.5%,
-      transparent 86%,
-      #111 86%,
-      #111 87.5%,
-      transparent 87.5%
-    ),
-    linear-gradient(
-      to right,
-      transparent 35%,
-      #cd5c5c 35%,
-      #bc3a3a 41%,
-      transparent 41%
-    ),
-    linear-gradient(to bottom, #111 68%, transparent 68%),
-    linear-gradient(
-      to right,
-      transparent 78%,
-      #bc8f8f 78%,
-      #bc8f8f 80%,
-      transparent 80%,
-      transparent 82%,
-      #bc8f8f 82%,
-      #bc8f8f 83%,
-      transparent 83%
-    ),
-    linear-gradient(
-      to right,
-      transparent 66%,
-      #a52a2a 66%,
-      #7c2020 85%,
-      transparent 85%
-    );
-  background-size: 300px 150px;
-  background-position: center bottom;
-  clip-path: circle(150px at center center);
-  animation: flashlight 20s ease infinite;
-}
-
-.login-bgFX::after {
-  content: "";
-  width: 25px;
-  height: 10px;
-  position: absolute;
-  left: calc(50% + 59px);
-  bottom: 100px;
-  background-repeat: no-repeat;
-  background-image: radial-gradient(circle, #fff 50%, transparent 50%),
-    radial-gradient(circle, #fff 50%, transparent 50%);
-  background-size: 10px 10px;
-  background-position:
-    left center,
-    right center;
-  animation: eyes 20s infinite;
-}
-
-@keyframes flashlight {
-  0% {
-    clip-path: circle(150px at -25% 10%);
-  }
-
-  38% {
-    clip-path: circle(150px at 60% 20%);
-  }
-
-  39% {
-    opacity: 1;
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  40% {
-    opacity: 0;
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  41% {
-    opacity: 1;
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  42% {
-    opacity: 0;
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  54% {
-    opacity: 0;
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  55% {
-    opacity: 1;
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  59% {
-    opacity: 1;
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  64% {
-    clip-path: circle(150px at 45% 78%);
-  }
-
-  68% {
-    clip-path: circle(150px at 85% 89%);
-  }
-
-  72% {
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  74% {
-    clip-path: circle(150px at 60% 86%);
-  }
-
-  100% {
-    clip-path: circle(150px at 150% 50%);
-  }
-}
-
-@keyframes eyes {
-  0%,
-  38% {
-    opacity: 0;
-  }
-
-  39%,
-  41% {
-    opacity: 1;
-    transform: scaleY(1);
-  }
-
-  40% {
-    transform: scaleY(0);
-    filter: none;
-    background-image: radial-gradient(circle, #fff 50%, transparent 50%),
-      radial-gradient(circle, #fff 50%, transparent 50%);
-  }
-
-  41% {
-    transform: scaleY(1);
-    background-image: radial-gradient(circle, #ff0000 50%, transparent 50%),
-      radial-gradient(circle, #ff0000 50%, transparent 50%);
-    filter: drop-shadow(0 0 4px #ff8686);
-  }
-
-  42%,
-  100% {
-    opacity: 0;
-  }
+  padding: 24px;
 }
 </style>

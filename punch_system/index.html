@@ -118,13 +118,14 @@
         <h2>打卡系统 - 登录</h2>
         <div class="form-item">
             <label for="username">用户名</label>
-            <input type="text" id="username" placeholder="请输入用户名（测试账号：test）">
+            <input type="text" id="username" placeholder="请输入用户名（如无账号请先注册）">
         </div>
         <div class="form-item">
             <label for="password">密码</label>
-            <input type="password" id="password" placeholder="请输入密码（测试密码：123456）">
+            <input type="password" id="password" placeholder="请输入密码（至少6位）">
         </div>
         <button onclick="login()">登录</button>
+        <button style="margin-top: 10px; background-color: #10b981;" onclick="register()">注册</button>
         <div id="loginMsg" class="message"></div>
 
         <!-- 打卡区域（登录成功后显示） -->
@@ -136,8 +137,60 @@
     </div>
 
     <script>
+        const API_BASE_URL = 'http://127.0.0.1:5000';
+
         // 存储登录后的用户ID，用于打卡接口
         let currentUserId = null;
+
+        async function fetchJson(url, options) {
+            const response = await fetch(url, options);
+            const data = await response.json().catch(() => null);
+            if (data) return data;
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        /**
+         * 注册函数：调用后端/register接口
+         */
+        async function register() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const msgBox = document.getElementById('loginMsg');
+
+            msgBox.className = 'message';
+            msgBox.textContent = '';
+
+            if (!username || !password) {
+                msgBox.className = 'message error';
+                msgBox.textContent = '用户名和密码不能为空！';
+                return;
+            }
+            if (password.length < 6) {
+                msgBox.className = 'message error';
+                msgBox.textContent = '密码至少6位！';
+                return;
+            }
+
+            try {
+                const data = await fetchJson(`${API_BASE_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (data.code === 200) {
+                    msgBox.className = 'message success';
+                    msgBox.textContent = '注册成功，请点击登录。';
+                    return;
+                }
+                msgBox.className = 'message error';
+                msgBox.textContent = data.msg || '注册失败';
+            } catch (error) {
+                msgBox.className = 'message error';
+                msgBox.textContent = `注册失败：${error.message}，请检查后端是否启动！`;
+                console.error('注册接口错误：', error);
+            }
+        }
 
         /**
          * 登录函数：调用后端/login接口
@@ -160,21 +213,12 @@
             }
 
             // 调用后端登录接口
-            fetch('http://127.0.0.1:5000/login', {
+            fetchJson(`${API_BASE_URL}/login`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json' // 告诉后端传的是JSON格式
-                },
+                headers: { 'Content-Type': 'application/json' }, // 告诉后端传的是JSON格式
                 body: JSON.stringify({ username, password }) // 把账号密码转成JSON
             })
-            .then(response => {
-                // 处理HTTP请求错误
-                if (!response.ok) {
-                    throw new Error('网络请求失败');
-                }
-                return response.json(); // 解析后端返回的JSON数据
-            })
-            .then(data => {
+            .then((data) => {
                 if (data.code === 200) {
                     // 登录成功
                     msgBox.className = 'message success';
@@ -211,18 +255,12 @@
             }
 
             // 调用后端打卡接口
-            fetch('http://127.0.0.1:5000/punch', {
+            fetchJson(`${API_BASE_URL}/punch`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ user_id: currentUserId }) // 传用户ID给后端
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('网络请求失败');
-                }
-                return response.json();
             })
             .then(data => {
                 if (data.code === 200) {

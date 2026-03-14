@@ -114,10 +114,10 @@
         </div>
         <div class="stats-grid">
           <div class="stat-item">
-            <div class="stat-item__icon">⭐</div>
+            <div class="stat-item__icon">👤</div>
             <div class="stat-item__content">
-              <p class="stat-item__value">{{ user.score || 0 }}</p>
-              <p class="stat-item__label">当前分数</p>
+              <p class="stat-item__value">{{ user.nickname || user.username }}</p>
+              <p class="stat-item__label">昵称</p>
             </div>
           </div>
           <div class="stat-item">

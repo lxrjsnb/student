@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS punch_records (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  score_add DECIMAL(10,2) NOT NULL DEFAULT 0.30,
+  punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_user_time (user_id, punch_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+

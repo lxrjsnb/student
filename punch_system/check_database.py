@@ -23,7 +23,7 @@ try:
     cursor.execute("SELECT * FROM users")
     users = cursor.fetchall()
     for user in users:
-        print(f"  ID: {user['id']}, Username: {user['username']}, Score: {user.get('score', 0)}, Role: {user.get('role', 'N/A')}")
+        print(f"  ID: {user['id']}, Username: {user['username']}, Role: {user.get('role', 'N/A')}, Online: {user.get('is_online', 0)}")
     
     print("\n=== 检查admin_applications表数据 ===")
     cursor.execute("SELECT * FROM admin_applications")

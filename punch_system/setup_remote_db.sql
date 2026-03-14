@@ -34,3 +34,12 @@ DEALLOCATE PREPARE alterIfNotExists;
 
 -- 将现有的admin用户设置为超级管理员
 UPDATE users SET role = 'super_admin' WHERE username = 'admin';
+
+-- 创建打卡记录表：每次打卡一条记录（可一天多次，可多次加分）
+CREATE TABLE IF NOT EXISTS punch_records (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    score_add DECIMAL(10,2) NOT NULL DEFAULT 0.30,
+    punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_time (user_id, punch_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

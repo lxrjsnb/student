@@ -88,6 +88,14 @@ const props = defineProps({
   isSuperAdmin: {
     type: Boolean,
     default: false
+  },
+  token: {
+    type: String,
+    required: true
+  },
+  role: {
+    type: String,
+    default: 'user'
   }
 })
 
@@ -105,8 +113,8 @@ const pendingCount = ref(0)
 async function loadStats() {
   try {
     const [usersRes, recordsRes] = await Promise.all([
-      getAllUsers({ token: 'admin_token', role: 'super_admin' }),
-      getAllRecords({ token: 'admin_token', role: 'super_admin' })
+      getAllUsers({ token: props.token, role: props.role }),
+      getAllRecords({ token: props.token, role: props.role })
     ])
 
     if (usersRes.code === 200) {
@@ -119,7 +127,7 @@ async function loadStats() {
     }
 
     try {
-      const appsRes = await getAdminApplications({ token: 'admin_token', role: 'super_admin' })
+      const appsRes = await getAdminApplications({ token: props.token, role: props.role })
       if (appsRes.code === 200) {
         const pendingApps = appsRes.data.filter(app => app.status === 'pending')
         stats.value.pendingApps = pendingApps.length

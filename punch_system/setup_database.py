@@ -17,6 +17,44 @@ def setup_database():
         cursor = conn.cursor()
         
         print("正在连接数据库...")
+
+        def column_exists(column_name):
+            cursor.execute(
+                '''
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = 'users'
+                  AND COLUMN_NAME = %s
+                ''',
+                ('student', column_name)
+            )
+            return cursor.fetchone() is not None
+
+        def table_exists(table_name):
+            cursor.execute(
+                '''
+                SELECT TABLE_NAME
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = %s
+                ''',
+                ('student', table_name)
+            )
+            return cursor.fetchone() is not None
+
+        def table_column_exists(table_name, column_name):
+            cursor.execute(
+                '''
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = %s
+                  AND COLUMN_NAME = %s
+                ''',
+                ('student', table_name, column_name)
+            )
+            return cursor.fetchone() is not None
         
         # 1. 检查并创建 admin_applications 表
         cursor.execute('''
@@ -33,6 +71,22 @@ def setup_database():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ''')
         print("✓ admin_applications 表创建成功")
+
+        # 1.1 创建 user_sessions 表（用于30天免登录）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                token VARCHAR(255) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TIMESTAMP NULL DEFAULT NULL,
+                UNIQUE KEY uniq_token (token),
+                KEY idx_user_id (user_id),
+                KEY idx_expires_at (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
+        print("✓ user_sessions 表创建成功")
         
         # 2. 检查并添加 role 字段到 users 表
         cursor.execute('''
@@ -52,10 +106,136 @@ def setup_database():
             print("✓ users 表添加 role 字段成功")
         else:
             print("✓ users 表已有 role 字段")
+
+        # 2.1 users 表字段补全：nickname、is_online、is_admin、last_login_at、last_logout_at、created_at
+        if not column_exists('nickname'):
+            cursor.execute("ALTER TABLE users ADD COLUMN nickname VARCHAR(50) DEFAULT '' AFTER id")
+            print("✓ users 表添加 nickname 字段成功")
+        else:
+            print("✓ users 表已有 nickname 字段")
+
+        if not column_exists('is_online'):
+            cursor.execute("ALTER TABLE users ADD COLUMN is_online TINYINT(1) NOT NULL DEFAULT 0 AFTER password")
+            print("✓ users 表添加 is_online 字段成功")
+        else:
+            print("✓ users 表已有 is_online 字段")
+
+        if not column_exists('is_admin'):
+            cursor.execute("ALTER TABLE users ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0 AFTER is_online")
+            print("✓ users 表添加 is_admin 字段成功")
+        else:
+            print("✓ users 表已有 is_admin 字段")
+
+        if not column_exists('last_login_at'):
+            cursor.execute("ALTER TABLE users ADD COLUMN last_login_at DATETIME NULL DEFAULT NULL AFTER is_admin")
+            print("✓ users 表添加 last_login_at 字段成功")
+        else:
+            print("✓ users 表已有 last_login_at 字段")
+
+        if not column_exists('last_logout_at'):
+            cursor.execute("ALTER TABLE users ADD COLUMN last_logout_at DATETIME NULL DEFAULT NULL AFTER last_login_at")
+            print("✓ users 表添加 last_logout_at 字段成功")
+        else:
+            print("✓ users 表已有 last_logout_at 字段")
+
+        if not column_exists('created_at'):
+            cursor.execute("ALTER TABLE users ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_logout_at")
+            print("✓ users 表添加 created_at 字段成功")
+        else:
+            print("✓ users 表已有 created_at 字段")
+
+        # 2.2 尝试调整字段顺序（忽略失败：不同版本/已有约束可能不支持）
+        try:
+            cursor.execute("""
+                ALTER TABLE users
+                  MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT FIRST,
+                  MODIFY COLUMN nickname VARCHAR(50) DEFAULT '' AFTER id,
+                  MODIFY COLUMN username VARCHAR(50) NOT NULL AFTER nickname,
+                  MODIFY COLUMN password VARCHAR(255) NOT NULL AFTER username,
+                  MODIFY COLUMN is_online TINYINT(1) NOT NULL DEFAULT 0 AFTER password,
+                  MODIFY COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0 AFTER is_online,
+                  MODIFY COLUMN last_login_at DATETIME NULL DEFAULT NULL AFTER is_admin,
+                  MODIFY COLUMN last_logout_at DATETIME NULL DEFAULT NULL AFTER last_login_at,
+                  MODIFY COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_logout_at
+            """)
+            print("✓ users 表字段顺序调整完成")
+        except Exception as e:
+            print(f"⚠ users 表字段顺序调整跳过: {e}")
+
+        # 2.3 username 唯一索引
+        try:
+            cursor.execute('CREATE UNIQUE INDEX uniq_users_username ON users (username)')
+            print("✓ users 表添加 username 唯一索引成功")
+        except Exception:
+            print("✓ users 表已有 username 唯一索引（或已存在同名索引）")
         
         # 3. 将 admin 用户设置为超级管理员
         cursor.execute('UPDATE users SET role = "super_admin" WHERE username = "admin"')
         print("✓ admin 用户已设置为超级管理员")
+
+        # 3.1 同步 is_admin 字段
+        try:
+            cursor.execute('UPDATE users SET is_admin = 1 WHERE role IN ("admin", "super_admin")')
+            cursor.execute('UPDATE users SET is_admin = 0 WHERE role NOT IN ("admin", "super_admin") OR role IS NULL')
+            print("✓ users 表 is_admin 字段已同步")
+        except Exception as e:
+            print(f"⚠ 同步 is_admin 失败: {e}")
+
+        # 3.2 同步 is_online：存在未过期 session 的用户视为在线
+        try:
+            cursor.execute('UPDATE users SET is_online = 0')
+            cursor.execute(
+                '''
+                UPDATE users u
+                JOIN (
+                    SELECT DISTINCT user_id
+                    FROM user_sessions
+                    WHERE expires_at >= NOW()
+                ) s ON s.user_id = u.id
+                SET u.is_online = 1
+                '''
+            )
+            print("✓ users 表 is_online 已根据 user_sessions 同步")
+        except Exception as e:
+            print(f"⚠ 同步 is_online 失败: {e}")
+
+        # 3.3 打卡记录表：每次打卡一条记录（可一天多次，可多次加分）
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS punch_records (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                score_add DECIMAL(10,2) NOT NULL DEFAULT 0.30,
+                punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_user_time (user_id, punch_time)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            '''
+        )
+        print("✓ punch_records 表创建成功（如不存在）")
+
+        # 兼容旧表：补齐字段
+        if table_exists('punch_records') and not table_column_exists('punch_records', 'score_add'):
+            cursor.execute('ALTER TABLE punch_records ADD COLUMN score_add DECIMAL(10,2) NOT NULL DEFAULT 0.30 AFTER user_id')
+            print("✓ punch_records 表添加 score_add 字段成功")
+        elif table_exists('punch_records'):
+            try:
+                cursor.execute('ALTER TABLE punch_records MODIFY COLUMN score_add DECIMAL(10,2) NOT NULL DEFAULT 0.30')
+            except Exception:
+                pass
+        if table_exists('punch_records') and not table_column_exists('punch_records', 'punch_time'):
+            cursor.execute('ALTER TABLE punch_records ADD COLUMN punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP')
+            print("✓ punch_records 表添加 punch_time 字段成功")
+        elif table_exists('punch_records'):
+            try:
+                cursor.execute('ALTER TABLE punch_records MODIFY COLUMN punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP')
+            except Exception:
+                pass
+
+        # 兼容旧数据：将 NULL 的 score_add 补齐为 0.30
+        try:
+            cursor.execute('UPDATE punch_records SET score_add = 0.30 WHERE score_add IS NULL')
+        except Exception:
+            pass
         
         # 4. 查看当前用户状态
         cursor.execute('SELECT id, username, role FROM users ORDER BY id LIMIT 10')
