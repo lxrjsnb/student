@@ -2,95 +2,6 @@
   <div class="bgFX" aria-hidden="true"></div>
 
   <div class="app-container">
-    <aside v-if="view !== 'adminLogin' && view !== 'adminPanel'" class="sidebar">
-      <div class="sidebar__header">
-        <div class="sidebar__logo">
-          <span class="logo-icon">🏫</span>
-          <div class="logo-text">
-            <h1 class="sidebar__title">智慧校园</h1>
-            <p class="sidebar__subtitle">考勤管理系统</p>
-          </div>
-        </div>
-      </div>
-      <nav class="sidebar__nav">
-        <button
-          v-if="currentUser"
-          class="nav-item"
-          :class="{ active: view === 'home' }"
-          @click="goHome"
-        >
-          <span class="nav-item__icon">🏠</span>
-          <span class="nav-item__text">工作台</span>
-        </button>
-        <button
-          v-if="isAdmin"
-          class="nav-item"
-          :class="{ active: view === 'superAdminDashboard' }"
-          @click="goSuperAdminDashboard"
-        >
-          <span class="nav-item__icon">🎛️</span>
-          <span class="nav-item__text">控制台</span>
-        </button>
-        <button
-          v-if="currentUser"
-          class="nav-item"
-          :class="{ active: view === 'profile' }"
-          @click="goProfile"
-        >
-          <span class="nav-item__icon">👤</span>
-          <span class="nav-item__text">个人中心</span>
-        </button>
-        <button
-          v-if="currentUser && !isAdmin"
-          class="nav-item"
-          @click="goAdminApply"
-        >
-          <span class="nav-item__icon">📝</span>
-          <span class="nav-item__text">申请管理员</span>
-        </button>
-        <button
-          v-if="currentUser"
-          class="nav-item"
-          @click="openRecordsModal"
-        >
-          <span class="nav-item__icon">📋</span>
-          <span class="nav-item__text">考勤记录</span>
-        </button>
-        <button
-          v-if="currentUser"
-          class="nav-item"
-          :class="{ active: view === 'overview' }"
-          @click="goOverview"
-        >
-          <span class="nav-item__icon">📊</span>
-          <span class="nav-item__text">概览</span>
-        </button>
-        <div class="nav-divider" v-if="currentUser"></div>
-        <button
-          v-if="currentUser"
-          class="nav-item nav-item--logout"
-          @click="logout"
-        >
-          <span class="nav-item__icon">🚪</span>
-          <span class="nav-item__text">退出登录</span>
-        </button>
-        <button
-          v-if="!currentUser"
-          class="nav-item"
-          @click="goAdminLogin"
-        >
-          <span class="nav-item__icon">🔐</span>
-          <span class="nav-item__text">管理员登录</span>
-        </button>
-      </nav>
-      <div class="sidebar__footer">
-        <div class="footer-info">
-          <p class="footer-text">© 2024 智慧校园</p>
-          <p class="footer-text">版本 v1.0.0</p>
-        </div>
-      </div>
-    </aside>
-
     <main class="page">
       <div v-if="currentUser && view !== 'adminLogin' && view !== 'adminPanel'" class="top-bar">
         <div class="top-bar__left">
@@ -131,18 +42,20 @@
         </div>
       </div>
 
-      <AuthCard
-        v-if="!currentUser && view !== 'adminLogin' && view !== 'adminPanel'"
-        :mode="authMode"
-        :loading="authLoading"
-        :message="authMessage"
-        :message-type="authMessageType"
-        :api-base-url="apiBaseUrl"
-        :default-username="rememberedUsername"
-        @switchMode="switchMode"
-        @auth="handleAuth"
-        @goAdmin="goAdminLogin"
-      />
+      <div v-if="!currentUser && view !== 'adminLogin' && view !== 'adminPanel'" class="login-container">
+        <div class="login-bgFX" aria-hidden="true"></div>
+        <AuthCard
+          :mode="authMode"
+          :loading="authLoading"
+          :message="authMessage"
+          :message-type="authMessageType"
+          :api-base-url="apiBaseUrl"
+          :default-username="rememberedUsername"
+          @switchMode="switchMode"
+          @auth="handleAuth"
+          @goAdmin="goAdminLogin"
+        />
+      </div>
 
       <AdminLogin
         v-if="view === 'adminLogin'"
@@ -814,133 +727,13 @@ onBeforeUnmount(() => {
 .app-container {
   display: flex;
   min-height: 100vh;
-}
-
-.sidebar {
-  width: 260px;
-  background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 100%);
-  backdrop-filter: blur(20px);
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
-  display: flex;
-  flex-direction: column;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  z-index: 100;
-}
-
-.sidebar__header {
-  padding: 24px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.sidebar__logo {
-  display: flex;
+  justify-content: center;
   align-items: center;
-  gap: 12px;
-}
-
-.logo-icon {
-  font-size: 32px;
-}
-
-.logo-text {
-  flex: 1;
-}
-
-.sidebar__title {
-  font-size: 18px;
-  font-weight: 700;
-  color: white;
-  margin: 0;
-  line-height: 1.2;
-}
-
-.sidebar__subtitle {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  margin: 2px 0 0 0;
-}
-
-.sidebar__nav {
-  flex: 1;
-  padding: 16px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.8);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 14px;
-  font-weight: 500;
-  text-align: left;
-  width: 100%;
-}
-
-.nav-item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-}
-
-.nav-item.active {
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
-  font-weight: 600;
-}
-
-.nav-item--logout {
-  margin-top: auto;
-  color: rgba(255, 107, 107, 0.9);
-}
-
-.nav-item--logout:hover {
-  background: rgba(255, 107, 107, 0.2);
-  color: rgba(255, 107, 107, 1);
-}
-
-.nav-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.1);
-  margin: 8px 0;
-}
-
-.nav-item__icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.nav-item__text {
-  flex: 1;
-}
-
-.sidebar__footer {
-  padding: 16px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.footer-info {
-  text-align: center;
-}
-
-.footer-text {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
-  margin: 2px 0;
 }
 
 .page {
-  flex: 1;
+  width: 100%;
+  max-width: 1200px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1431,18 +1224,55 @@ onBeforeUnmount(() => {
 .bgFX {
   position: fixed;
   inset: 0;
-  z-index: -2;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  background-size: 400% 400%;
-  background-position: center;
-  animation: bgSlide 60s ease-in-out infinite;
+  z-index: -1;
+  pointer-events: none;
+  width: 100vw;
+  height: 100vh;
+  min-width: 100vw;
+  min-height: 100vh;
+  background: radial-gradient(circle at center, #0a192f 0%, #001233 100%);
+  overflow: hidden;
 }
 
 .bgFX::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(30, 58, 138, 0.1) 0%, rgba(30, 64, 175, 0.15) 100%);
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(66, 153, 225, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(66, 153, 225, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 80%, rgba(66, 153, 225, 0.05) 0%, transparent 50%);
+  animation: pulse 10s ease-in-out infinite;
+}
+
+.bgFX::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: 
+    linear-gradient(135deg, transparent 20%, rgba(66, 153, 225, 0.05) 20%, rgba(66, 153, 225, 0.05) 25%, transparent 25%, transparent 75%, rgba(66, 153, 225, 0.05) 75%, rgba(66, 153, 225, 0.05) 80%, transparent 80%),
+    linear-gradient(45deg, transparent 48%, rgba(66, 153, 225, 0.1) 48%, rgba(66, 153, 225, 0.1) 52%, transparent 52%);
+  background-size: 100px 100px, 50px 50px;
+  opacity: 0.3;
+  animation: gridMove 20s linear infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes gridMove {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(100px, 100px);
+  }
 }
 
 @media (max-width: 768px) {
@@ -1504,21 +1334,437 @@ body {
   color: var(--text);
 }
 
-@keyframes bgSlide {
-  0%, 20% {
-    background-position: 0% 50%;
+
+
+.login-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.login-bgFX {
+  position: fixed;
+  inset: -80px;
+  z-index: -1;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  background-color: #111;
+  background-image: linear-gradient(
+      to top,
+      #d2b48c 5%,
+      #111 6%,
+      #111 7%,
+      transparent 7%
+    ),
+    linear-gradient(to bottom, #111 30%, transparent 80%),
+    linear-gradient(to right, #b22222, #871a1a 5%, transparent 5%),
+    linear-gradient(
+      to right,
+      transparent 6%,
+      #ff6347 6%,
+      #ff3814 9%,
+      transparent 9%
+    ),
+    linear-gradient(
+      to right,
+      transparent 27%,
+      #556b2f 27%,
+      #39481f 34%,
+      transparent 34%
+    ),
+    linear-gradient(
+      to right,
+      transparent 51%,
+      #fa8072 51%,
+      #f85441 57%,
+      transparent 57%
+    ),
+    linear-gradient(to bottom, #111 35%, transparent 35%),
+    linear-gradient(
+      to right,
+      transparent 42%,
+      #008080 42%,
+      #004d4d 44%,
+      transparent 44%
+    ),
+    linear-gradient(
+      to right,
+      transparent 45%,
+      #008080 45%,
+      #004d4d 47%,
+      transparent 47%
+    ),
+    linear-gradient(
+      to right,
+      transparent 48%,
+      #008080 48%,
+      #004d4d 50%,
+      transparent 50%
+    ),
+    linear-gradient(
+      to right,
+      transparent 87%,
+      #789 87%,
+      #4f5d6a 91%,
+      transparent 91%
+    ),
+    linear-gradient(to bottom, #111 37.5%, transparent 37.5%),
+    linear-gradient(
+      to right,
+      transparent 14%,
+      #bdb76b 14%,
+      #989244 20%,
+      transparent 20%
+    ),
+    linear-gradient(to bottom, #111 40%, transparent 40%),
+    linear-gradient(
+      to right,
+      transparent 10%,
+      #808000 10%,
+      #4d4d00 13%,
+      transparent 13%
+    ),
+    linear-gradient(
+      to right,
+      transparent 21%,
+      #8b4513 21%,
+      #5e2f0d 25%,
+      transparent 25%
+    ),
+    linear-gradient(
+      to right,
+      transparent 58%,
+      #8b4513 58%,
+      #5e2f0d 64%,
+      transparent 64%
+    ),
+    linear-gradient(
+      to right,
+      transparent 92%,
+      #2f4f4f 92%,
+      #1c2f2f 95%,
+      transparent 95%
+    ),
+    linear-gradient(to bottom, #111 48%, transparent 48%),
+    linear-gradient(
+      to right,
+      transparent 96%,
+      #2f4f4f 96%,
+      #1c2f2f 99%,
+      transparent 99%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 68.5%,
+      transparent 76%,
+      #111 76%,
+      #111 77.5%,
+      transparent 77.5%,
+      transparent 86%,
+      #111 86%,
+      #111 87.5%,
+      transparent 87.5%
+    ),
+    linear-gradient(
+      to right,
+      transparent 35%,
+      #cd5c5c 35%,
+      #bc3a3a 41%,
+      transparent 41%
+    ),
+    linear-gradient(to bottom, #111 68%, transparent 68%),
+    linear-gradient(
+      to right,
+      transparent 78%,
+      #bc8f8f 78%,
+      #bc8f8f 80%,
+      transparent 80%,
+      transparent 82%,
+      #bc8f8f 82%,
+      #bc8f8f 83%,
+      transparent 83%
+    ),
+    linear-gradient(
+      to right,
+      transparent 66%,
+      #a52a2a 66%,
+      #7c2020 85%,
+      transparent 85%
+    );
+  background-size: 300px 150px;
+  background-position: center bottom;
+}
+
+.login-bgFX::before {
+  content: "";
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  background-color: #111;
+  background-image: linear-gradient(
+      to top,
+      #d2b48c 5%,
+      #111 6%,
+      #111 7%,
+      transparent 7%
+    ),
+    linear-gradient(to bottom, #111 30%, transparent 30%),
+    linear-gradient(to right, #b22222, #871a1a 5%, transparent 5%),
+    linear-gradient(
+      to right,
+      transparent 6%,
+      #ff6347 6%,
+      #ff3814 9%,
+      transparent 9%
+    ),
+    linear-gradient(
+      to right,
+      transparent 27%,
+      #556b2f 27%,
+      #39481f 34%,
+      transparent 34%
+    ),
+    linear-gradient(
+      to right,
+      transparent 51%,
+      #fa8072 51%,
+      #f85441 57%,
+      transparent 57%
+    ),
+    linear-gradient(to bottom, #111 35%, transparent 35%),
+    linear-gradient(
+      to right,
+      transparent 42%,
+      #008080 42%,
+      #004d4d 44%,
+      transparent 44%
+    ),
+    linear-gradient(
+      to right,
+      transparent 45%,
+      #008080 45%,
+      #004d4d 47%,
+      transparent 47%
+    ),
+    linear-gradient(
+      to right,
+      transparent 48%,
+      #008080 48%,
+      #004d4d 50%,
+      transparent 50%
+    ),
+    linear-gradient(
+      to right,
+      transparent 87%,
+      #789 87%,
+      #4f5d6a 91%,
+      transparent 91%
+    ),
+    linear-gradient(to bottom, #111 37.5%, transparent 37.5%),
+    linear-gradient(
+      to right,
+      transparent 14%,
+      #bdb76b 14%,
+      #989244 20%,
+      transparent 20%
+    ),
+    linear-gradient(to bottom, #111 40%, transparent 40%),
+    linear-gradient(
+      to right,
+      transparent 10%,
+      #808000 10%,
+      #4d4d00 13%,
+      transparent 13%
+    ),
+    linear-gradient(
+      to right,
+      transparent 21%,
+      #8b4513 21%,
+      #5e2f0d 25%,
+      transparent 25%
+    ),
+    linear-gradient(
+      to right,
+      transparent 58%,
+      #8b4513 58%,
+      #5e2f0d 64%,
+      transparent 64%
+    ),
+    linear-gradient(
+      to right,
+      transparent 92%,
+      #2f4f4f 92%,
+      #1c2f2f 95%,
+      transparent 95%
+    ),
+    linear-gradient(to bottom, #111 48%, transparent 48%),
+    linear-gradient(
+      to right,
+      transparent 96%,
+      #2f4f4f 96%,
+      #1c2f2f 99%,
+      transparent 99%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 68.5%,
+      transparent 76%,
+      #111 76%,
+      #111 77.5%,
+      transparent 77.5%,
+      transparent 86%,
+      #111 86%,
+      #111 87.5%,
+      transparent 87.5%
+    ),
+    linear-gradient(
+      to right,
+      transparent 35%,
+      #cd5c5c 35%,
+      #bc3a3a 41%,
+      transparent 41%
+    ),
+    linear-gradient(to bottom, #111 68%, transparent 68%),
+    linear-gradient(
+      to right,
+      transparent 78%,
+      #bc8f8f 78%,
+      #bc8f8f 80%,
+      transparent 80%,
+      transparent 82%,
+      #bc8f8f 82%,
+      #bc8f8f 83%,
+      transparent 83%
+    ),
+    linear-gradient(
+      to right,
+      transparent 66%,
+      #a52a2a 66%,
+      #7c2020 85%,
+      transparent 85%
+    );
+  background-size: 300px 150px;
+  background-position: center bottom;
+  clip-path: circle(150px at center center);
+  animation: flashlight 20s ease infinite;
+}
+
+.login-bgFX::after {
+  content: "";
+  width: 25px;
+  height: 10px;
+  position: absolute;
+  left: calc(50% + 59px);
+  bottom: 100px;
+  background-repeat: no-repeat;
+  background-image: radial-gradient(circle, #fff 50%, transparent 50%),
+    radial-gradient(circle, #fff 50%, transparent 50%);
+  background-size: 10px 10px;
+  background-position:
+    left center,
+    right center;
+  animation: eyes 20s infinite;
+}
+
+@keyframes flashlight {
+  0% {
+    clip-path: circle(150px at -25% 10%);
   }
-  25%, 45% {
-    background-position: 50% 50%;
+
+  38% {
+    clip-path: circle(150px at 60% 20%);
   }
-  50%, 70% {
-    background-position: 100% 50%;
+
+  39% {
+    opacity: 1;
+    clip-path: circle(150px at 60% 86%);
   }
-  75%, 95% {
-    background-position: 50% 100%;
+
+  40% {
+    opacity: 0;
+    clip-path: circle(150px at 60% 86%);
   }
+
+  41% {
+    opacity: 1;
+    clip-path: circle(150px at 60% 86%);
+  }
+
+  42% {
+    opacity: 0;
+    clip-path: circle(150px at 60% 86%);
+  }
+
+  54% {
+    opacity: 0;
+    clip-path: circle(150px at 60% 86%);
+  }
+
+  55% {
+    opacity: 1;
+    clip-path: circle(150px at 60% 86%);
+  }
+
+  59% {
+    opacity: 1;
+    clip-path: circle(150px at 60% 86%);
+  }
+
+  64% {
+    clip-path: circle(150px at 45% 78%);
+  }
+
+  68% {
+    clip-path: circle(150px at 85% 89%);
+  }
+
+  72% {
+    clip-path: circle(150px at 60% 86%);
+  }
+
+  74% {
+    clip-path: circle(150px at 60% 86%);
+  }
+
   100% {
-    background-position: 0% 50%;
+    clip-path: circle(150px at 150% 50%);
+  }
+}
+
+@keyframes eyes {
+  0%,
+  38% {
+    opacity: 0;
+  }
+
+  39%,
+  41% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+
+  40% {
+    transform: scaleY(0);
+    filter: none;
+    background-image: radial-gradient(circle, #fff 50%, transparent 50%),
+      radial-gradient(circle, #fff 50%, transparent 50%);
+  }
+
+  41% {
+    transform: scaleY(1);
+    background-image: radial-gradient(circle, #ff0000 50%, transparent 50%),
+      radial-gradient(circle, #ff0000 50%, transparent 50%);
+    filter: drop-shadow(0 0 4px #ff8686);
+  }
+
+  42%,
+  100% {
+    opacity: 0;
   }
 }
 </style>

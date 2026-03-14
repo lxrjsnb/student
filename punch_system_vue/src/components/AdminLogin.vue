@@ -82,13 +82,35 @@ function onSubmit() {
 .card {
   width: 100%;
   max-width: 420px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(229, 231, 235, 0.9);
+  background: rgba(10, 25, 47, 0.85);
+  border: 1px solid rgba(66, 153, 225, 0.3);
   border-radius: 16px;
-  box-shadow: var(--shadow-strong);
+  box-shadow: 0 0 30px rgba(66, 153, 225, 0.2);
   backdrop-filter: blur(12px);
   padding: 22px;
   text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #4299e1, transparent);
+  animation: borderGlow 3s ease-in-out infinite;
+}
+
+@keyframes borderGlow {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .card__head {
@@ -99,12 +121,15 @@ function onSubmit() {
   margin: 0;
   font-size: 22px;
   letter-spacing: 0.2px;
+  color: #e2e8f0;
+  text-align: center;
 }
 
 .card__sub {
   margin: 6px 0 0;
-  color: var(--muted);
+  color: #94a3b8;
   font-size: 13px;
+  text-align: center;
 }
 
 .form {
@@ -119,20 +144,23 @@ function onSubmit() {
 
 .field__label {
   font-size: 13px;
-  color: var(--muted);
+  color: #94a3b8;
 }
 
 .field__input {
   padding: 12px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(66, 153, 225, 0.3);
   border-radius: 12px;
   outline: none;
-  background: #fff;
+  background: rgba(15, 30, 50, 0.8);
+  color: #e2e8f0;
+  transition: all 0.3s ease;
 }
 
 .field__input:focus {
-  border-color: rgba(37, 99, 235, 0.55);
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  border-color: #4299e1;
+  box-shadow: 0 0 0 4px rgba(66, 153, 225, 0.15);
+  background: rgba(15, 30, 50, 1);
 }
 
 .row {
@@ -146,7 +174,7 @@ function onSubmit() {
 .link {
   border: 0;
   background: transparent;
-  color: var(--primary);
+  color: #4299e1;
   font-weight: 700;
   padding: 6px 0;
   transition: transform 0.16s ease, filter 0.16s ease;
@@ -155,6 +183,7 @@ function onSubmit() {
 .link:hover {
   transform: translateY(-1px);
   filter: saturate(1.1);
+  color: #63b3ed;
 }
 
 .link:disabled {
@@ -164,14 +193,21 @@ function onSubmit() {
 
 .btn {
   width: 100%;
-  border: 1px solid transparent;
+  border: 1px solid rgba(66, 153, 225, 0.5);
   border-radius: 12px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, var(--primary), var(--accent), var(--accent2));
+  background: linear-gradient(135deg, rgba(66, 153, 225, 0.2), rgba(66, 153, 225, 0.4));
   background-size: 200% 200%;
   animation: bgShift 10s ease-in-out infinite;
-  color: var(--primary-ink);
+  color: #e2e8f0;
   font-weight: 800;
+  transition: all 0.3s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(66, 153, 225, 0.3), rgba(66, 153, 225, 0.6));
+  box-shadow: 0 0 20px rgba(66, 153, 225, 0.3);
+  transform: translateY(-1px);
 }
 
 .btn:disabled {
@@ -187,26 +223,26 @@ function onSubmit() {
 }
 
 .alert--success {
-  background: var(--success-bg);
-  color: var(--success-ink);
-  border-color: rgba(6, 95, 70, 0.2);
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
 }
 
 .alert--error {
-  background: var(--danger-bg);
-  color: var(--danger-ink);
-  border-color: rgba(153, 27, 27, 0.2);
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 .alert--warn {
-  background: var(--warn-bg);
-  color: var(--warn-ink);
-  border-color: rgba(146, 64, 14, 0.2);
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
 }
 
 .alert--info {
-  background: #eff6ff;
-  color: #1e40af;
-  border-color: rgba(30, 64, 175, 0.2);
+  background: rgba(66, 153, 225, 0.1);
+  color: #4299e1;
+  border-color: rgba(66, 153, 225, 0.3);
 }
 </style>
