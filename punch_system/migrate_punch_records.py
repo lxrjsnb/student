@@ -50,6 +50,8 @@ def migrate():
                 user_id INT NOT NULL,
                 score_add DECIMAL(10,2) NOT NULL DEFAULT 0.30,
                 punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                approved TINYINT(1) NOT NULL DEFAULT 0,
+                is_urge TINYINT(1) NOT NULL DEFAULT 0,
                 KEY idx_user_time (user_id, punch_time)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             '''
@@ -81,6 +83,18 @@ def migrate():
                 )
             except Exception:
                 pass
+
+        if _table_exists(cursor, 'punch_records') and not _column_exists(cursor, 'punch_records', 'approved'):
+            cursor.execute(
+                'ALTER TABLE punch_records ADD COLUMN approved TINYINT(1) NOT NULL DEFAULT 0'
+            )
+            print("✓ punch_records.approved 字段已添加")
+
+        if _table_exists(cursor, 'punch_records') and not _column_exists(cursor, 'punch_records', 'is_urge'):
+            cursor.execute(
+                'ALTER TABLE punch_records ADD COLUMN is_urge TINYINT(1) NOT NULL DEFAULT 0'
+            )
+            print("✓ punch_records.is_urge 字段已添加")
 
         try:
             cursor.execute('UPDATE punch_records SET score_add = 0.30 WHERE score_add IS NULL')

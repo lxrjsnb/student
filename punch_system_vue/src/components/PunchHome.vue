@@ -1,8 +1,14 @@
 <template>
   <section class="home">
-    <button class="history" type="button" @click="$emit('openHistory')" aria-label="历史打卡" title="历史打卡">
-      <ClockIcon />
-    </button>
+    <div class="topActions" role="group" aria-label="快捷入口">
+      <button class="topBtn" type="button" @click="$emit('openHistory')" aria-label="历史打卡" title="历史打卡">
+        <ClockIcon />
+      </button>
+      <button class="topBtn" type="button" @click="$emit('openMessages')" aria-label="打卡消息" title="打卡消息">
+        <span v-if="pendingApproval" class="dot" aria-hidden="true"></span>
+        <MessageIcon />
+      </button>
+    </div>
 
     <header class="hero">
       <p class="kicker">今天也要好好生活</p>
@@ -10,6 +16,10 @@
     </header>
 
     <div class="center">
+      <div v-if="pendingApproval" class="pendingTip" role="status" aria-live="polite">
+        {{ pendingCount }}条记录已提交管理员，待审批中
+      </div>
+
       <button class="punch" type="button" :disabled="disabled" @click="$emit('punch')">
         <span class="punchInner">
           <span class="punchText">
@@ -33,17 +43,20 @@
 
 <script setup>
 import ClockIcon from './ClockIcon.vue'
+import MessageIcon from './MessageIcon.vue'
 
 defineProps({
   user: { type: Object, default: null },
   loading: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   cooldownRemaining: { type: Number, default: 0 },
+  pendingApproval: { type: Boolean, default: false },
+  pendingCount: { type: Number, default: 0 },
   message: { type: String, default: '' },
   messageType: { type: String, default: 'info' }
 })
 
-defineEmits(['punch', 'openHistory'])
+defineEmits(['punch', 'openHistory', 'openMessages'])
 </script>
 
 <style scoped>
@@ -57,10 +70,18 @@ defineEmits(['punch', 'openHistory'])
   flex-direction: column;
 }
 
-.history {
+.topActions {
   position: fixed;
   top: calc(14px + env(safe-area-inset-top, 0px));
   left: calc(14px + env(safe-area-inset-left, 0px));
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 30;
+}
+
+.topBtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -71,22 +92,32 @@ defineEmits(['punch', 'openHistory'])
   color: rgba(0, 95, 120, 0.9);
   opacity: 0.85;
   transition: transform 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
-  z-index: 30;
 }
 
-.history:hover {
+.topBtn:hover {
   opacity: 1;
   transform: translateY(-1px);
   filter: drop-shadow(0 10px 18px rgba(0, 95, 120, 0.18));
 }
 
-.history:active {
+.topBtn:active {
   transform: translateY(0);
 }
 
-.history :deep(.icon) {
+.topBtn :deep(.icon) {
   width: 18px;
   height: 18px;
+}
+
+.dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
 .kicker {
@@ -116,6 +147,18 @@ defineEmits(['punch', 'openHistory'])
   place-items: center;
   gap: 14px;
   padding-bottom: 24px;
+}
+
+.pendingTip {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(234, 179, 8, 0.28);
+  background: rgba(234, 179, 8, 0.12);
+  color: rgba(133, 77, 14, 0.95);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .punch {

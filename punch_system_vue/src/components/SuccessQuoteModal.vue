@@ -5,7 +5,8 @@
 
       <div class="content">
         <div class="badge" aria-hidden="true">✓</div>
-        <h3 class="title">打卡成功</h3>
+        <h3 class="title">已提交管理员</h3>
+        <p class="sub">待审批通过后计入历史记录</p>
 
         <div class="quote">
           <p class="q">“{{ quote }}”</p>

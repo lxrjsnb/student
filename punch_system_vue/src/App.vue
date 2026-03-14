@@ -62,6 +62,17 @@
         :role="currentUser?.role || 'user'"
       />
 
+      <AdminPunchApproval v-else-if="view === 'adminPunchApproval' && currentUser" :token="adminAuthToken" />
+
+      <AdminActivityUpload v-else-if="view === 'adminActivityUpload' && currentUser" />
+
+      <AdminProfile
+        v-else-if="view === 'adminProfile' && currentUser"
+        :user="currentUser"
+        @logout="adminLogout"
+        @goSuperAdmin="goSuperAdminDashboard"
+      />
+
       <ActivityDetail v-else-if="view === 'activityDetail' && currentUser" :activity="selectedActivity" @back="goActivities" />
 
       <ActivitiesList v-else-if="view === 'activities' && currentUser" :activities="activities" @open="openActivity" />
@@ -95,15 +106,29 @@
         :loading="punchLoading"
         :disabled="punchDisabled"
         :cooldown-remaining="cooldownRemaining"
+        :pending-approval="pendingApproval"
+        :pending-count="pendingCount"
         :message="punchMessageType === 'success' ? '' : punchMessage"
         :message-type="punchMessageType"
         @punch="punchNow"
         @openHistory="openRecords"
+        @openMessages="openPunchMessages"
       />
 
       <BottomNav v-if="showMainNav" :current="view" @navigate="navigateMain" />
+      <AdminNav v-if="showAdminNav" :current="view" @navigate="navigateAdmin" />
 
       <RecordsModal :open="recordsOpen" :records="records" :loading="recordsLoading" @close="recordsOpen = false" />
+
+      <PunchMessagesModal
+        :open="messagesOpen"
+        :loading="messagesLoading"
+        :records="punchMessages"
+        :message="messagesTip"
+        :message-type="messagesTipType"
+        @close="messagesOpen = false"
+        @urge="urgeRecord"
+      />
 
       <SuccessQuoteModal
         :open="successOpen"
@@ -117,17 +142,22 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { adminLogin, login, logout as apiLogout, me, punch, getRecords, register } from './lib/api'
+import { adminLogin, login, logout as apiLogout, me, punch, getPunchMessages, getRecords, register, urgePunchRecord } from './lib/api'
 import AuthCard from './components/AuthCard.vue'
 import AdminLogin from './components/AdminLogin.vue'
 import AdminPanel from './components/AdminPanel.vue'
 import Overview from './components/Overview.vue'
 import AdminApply from './components/AdminApply.vue'
 import AdminApprove from './components/AdminApprove.vue'
+import AdminPunchApproval from './components/AdminPunchApproval.vue'
+import AdminActivityUpload from './components/AdminActivityUpload.vue'
+import AdminProfile from './components/AdminProfile.vue'
 import SuperAdminDashboard from './components/SuperAdminDashboard.vue'
 import PunchHome from './components/PunchHome.vue'
 import BottomNav from './components/BottomNav.vue'
+import AdminNav from './components/AdminNav.vue'
 import RecordsModal from './components/RecordsModal.vue'
+import PunchMessagesModal from './components/PunchMessagesModal.vue'
 import SuccessQuoteModal from './components/SuccessQuoteModal.vue'
 import ActivitiesList from './components/ActivitiesList.vue'
 import ActivityDetail from './components/ActivityDetail.vue'
@@ -164,6 +194,15 @@ const punchLoading = ref(false)
 const punchMessage = ref('')
 const punchMessageType = ref('info')
 const recordsOpen = ref(false)
+const pendingApproval = ref(false)
+const pendingApprovalLatest = ref('')
+const pendingCount = ref(0)
+
+const messagesOpen = ref(false)
+const messagesLoading = ref(false)
+const punchMessages = ref([])
+const messagesTip = ref('')
+const messagesTipType = ref('info')
 
 const successOpen = ref(false)
 const successQuote = ref({ text: '', from: '' })
@@ -174,9 +213,17 @@ const selectedActivity = computed(() => activities.value.find((a) => a.id === se
 
 const showMainNav = computed(() => {
   if (!currentUser.value) return false
+  if (isAdmin.value) return false
   if (view.value === 'adminLogin' || view.value === 'adminPanel' || view.value === 'superAdminDashboard') return false
   if (view.value === 'adminApprove' || view.value === 'adminApply') return false
   return ['home', 'activities', 'profile'].includes(view.value)
+})
+
+const showAdminNav = computed(() => {
+  if (!currentUser.value) return false
+  if (!isAdmin.value) return false
+  if (view.value === 'adminLogin') return false
+  return ['adminPunchApproval', 'adminActivityUpload', 'adminProfile'].includes(view.value)
 })
 
 const records = ref([])
@@ -204,6 +251,8 @@ const isAdmin = computed(() => {
 const isSuperAdmin = computed(() => {
   return currentUser.value?.role === 'super_admin'
 })
+
+const adminAuthToken = computed(() => adminToken.value || currentUser.value?.sessionToken || '')
 
 const latestRecord = computed(() => records.value[0] || null)
 
@@ -267,6 +316,10 @@ function switchMode(mode) {
 }
 
 function goHome() {
+  if (isAdmin.value) {
+    view.value = 'adminPunchApproval'
+    return
+  }
   view.value = 'home'
 }
 
@@ -315,7 +368,6 @@ function setUser(user, remember) {
   console.log('setUser 前，currentUser.value:', currentUser.value)
   currentUser.value = { ...user }
   console.log('setUser 后，currentUser.value:', currentUser.value)
-  view.value = 'home'
   if (remember) {
     const toStore = { ...user }
     if (!toStore._expiresAt) toStore._expiresAt = Date.now() + LOGIN_TTL_MS
@@ -348,7 +400,9 @@ function logout() {
   records.value = []
   recordsLoaded.value = false
   punchMessage.value = ''
-  userScore.value = 0
+  pendingApproval.value = false
+  pendingApprovalLatest.value = ''
+  pendingCount.value = 0
   lastPunchTime.value = null
   cooldownRemaining.value = 0
   localStorage.removeItem(STORAGE_KEY_USER)
@@ -358,6 +412,32 @@ function logout() {
 
 function goAdminLogin() {
   view.value = 'adminLogin'
+}
+
+function goAdminPunchApproval() {
+  view.value = 'adminPunchApproval'
+}
+
+function goAdminActivityUpload() {
+  view.value = 'adminActivityUpload'
+}
+
+function goAdminProfile() {
+  view.value = 'adminProfile'
+}
+
+function navigateAdmin(target) {
+  if (target === 'adminPunchApproval') goAdminPunchApproval()
+  if (target === 'adminActivityUpload') goAdminActivityUpload()
+  if (target === 'adminProfile') goAdminProfile()
+}
+
+function setInitialViewForRole(role) {
+  if (role === 'admin' || role === 'super_admin') {
+    view.value = 'adminPunchApproval'
+    return
+  }
+  view.value = 'home'
 }
 
 async function handleAuth(payload) {
@@ -417,6 +497,7 @@ async function handleAuth(payload) {
         sessionToken: data.session_token || '',
         _expiresAt: data.session_expires_at ? new Date(data.session_expires_at).getTime() : Date.now() + LOGIN_TTL_MS
       }, payload.remember)
+      setInitialViewForRole(data.role)
       authMessage.value = ''
       authLoading.value = false
       console.log('设置用户后，currentUser:', currentUser.value)
@@ -438,9 +519,9 @@ async function handleAuth(payload) {
   }
 }
 
-async function refreshRecords() {
+async function refreshRecords({ silent = false } = {}) {
   recordsLoading.value = true
-  punchMessage.value = ''
+  if (!silent) punchMessage.value = ''
   try {
     if (!currentUser.value?.id) {
       recordsLoading.value = false
@@ -451,8 +532,10 @@ async function refreshRecords() {
       sessionToken: currentUser.value.sessionToken
     })
     if (data.code !== 200) {
-      punchMessage.value = data.msg || '同步记录失败。'
-      punchMessageType.value = 'error'
+      if (!silent) {
+        punchMessage.value = data.msg || '同步记录失败。'
+        punchMessageType.value = 'error'
+      }
     } else {
       records.value = (data.data || []).map((r) => ({
         ...r,
@@ -460,13 +543,71 @@ async function refreshRecords() {
         punchAt: new Date(r.punch_time),
         punch_time: formatDateTime(r.punch_time)
       }))
+
+      const pending = data?.pending || {}
+      pendingCount.value = Number(pending?.count || 0)
+      pendingApproval.value = !isAdmin.value && pendingCount.value > 0
+      pendingApprovalLatest.value = pending?.latest_time || ''
     }
   } catch (err) {
-    punchMessage.value = `同步记录失败：${err?.message || '未知错误'}`
-    punchMessageType.value = 'error'
+    if (!silent) {
+      punchMessage.value = `同步记录失败：${err?.message || '未知错误'}`
+      punchMessageType.value = 'error'
+    }
   } finally {
     recordsLoaded.value = true
     recordsLoading.value = false
+  }
+}
+
+async function openPunchMessages() {
+  if (!currentUser.value?.id || !currentUser.value?.sessionToken) return
+  messagesOpen.value = true
+  messagesLoading.value = true
+  messagesTip.value = ''
+  messagesTipType.value = 'info'
+  try {
+    const data = await getPunchMessages({
+      userId: currentUser.value.id,
+      sessionToken: currentUser.value.sessionToken,
+      limit: 80
+    })
+    if (data.code === 200) {
+      punchMessages.value = data.data || []
+    } else {
+      messagesTip.value = data.msg || '加载消息失败。'
+      messagesTipType.value = 'error'
+      punchMessages.value = []
+    }
+  } catch (err) {
+    messagesTip.value = `加载消息失败：${err?.message || '未知错误'}`
+    messagesTipType.value = 'error'
+    punchMessages.value = []
+  } finally {
+    messagesLoading.value = false
+  }
+}
+
+async function urgeRecord(recordId) {
+  if (!currentUser.value?.sessionToken) return
+  try {
+    const data = await urgePunchRecord({ recordId, sessionToken: currentUser.value.sessionToken })
+    if (data.code === 200) {
+      punchMessages.value = (punchMessages.value || []).map((r) =>
+        Number(r?.id) === Number(recordId) ? { ...r, is_urge: 1 } : r
+      )
+      messagesTip.value = data.msg || '催办成功'
+      messagesTipType.value = 'info'
+      setTimeout(() => {
+        if (messagesTipType.value === 'info') messagesTip.value = ''
+      }, 1200)
+      return
+    }
+    messagesTip.value = data.msg || '催办失败。'
+    messagesTipType.value = 'error'
+  } catch (err) {
+    messagesTip.value = `催办失败：${err?.message || '未知错误'}`
+    messagesTipType.value = 'error'
   }
 }
 
@@ -549,7 +690,7 @@ async function handleAdminLogin(payload) {
       }
       currentUser.value = user
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user))
-      view.value = data.role === 'super_admin' ? 'superAdminDashboard' : 'adminPanel'
+      setInitialViewForRole(data.role)
       adminMessage.value = ''
       return
     }
@@ -604,6 +745,7 @@ function goAdminApply() {
 
 let timer = null
 let cooldownTimer = null
+let pendingPollTimer = null
 let reloginListener = null
 
 onMounted(() => {
@@ -625,6 +767,14 @@ onMounted(() => {
       cooldownRemaining.value--
     }
   }, 1000)
+
+  pendingPollTimer = setInterval(() => {
+    if (!currentUser.value?.id) return
+    if (isAdmin.value) return
+    if (!pendingApproval.value) return
+    if (recordsLoading.value) return
+    refreshRecords({ silent: true }).catch(() => {})
+  }, 15000)
   
   if (currentUser.value?.id) refreshRecords()
   if (currentUser.value?.sessionToken) {
@@ -632,6 +782,7 @@ onMounted(() => {
       .then((data) => {
         if (data.code === 200) {
           applyUserPatch({ nickname: data.nickname || data.username, username: data.username, role: data.role })
+          setInitialViewForRole(data.role)
         } else if (data.code === 401) {
           logout()
         }
@@ -640,11 +791,16 @@ onMounted(() => {
         // 忽略：后端可能尚未启用 /me 或 user_sessions
       })
   }
+
+  if (currentUser.value?.role) {
+    setInitialViewForRole(currentUser.value.role)
+  }
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (cooldownTimer) clearInterval(cooldownTimer)
+  if (pendingPollTimer) clearInterval(pendingPollTimer)
   if (reloginListener) window.removeEventListener('auth:relogin-required', reloginListener)
 })
 </script>

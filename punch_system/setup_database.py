@@ -207,6 +207,8 @@ def setup_database():
                 user_id INT NOT NULL,
                 score_add DECIMAL(10,2) NOT NULL DEFAULT 0.30,
                 punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                approved TINYINT(1) NOT NULL DEFAULT 0,
+                is_urge TINYINT(1) NOT NULL DEFAULT 0,
                 KEY idx_user_time (user_id, punch_time)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             '''
@@ -230,6 +232,14 @@ def setup_database():
                 cursor.execute('ALTER TABLE punch_records MODIFY COLUMN punch_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP')
             except Exception:
                 pass
+
+        if table_exists('punch_records') and not table_column_exists('punch_records', 'approved'):
+            cursor.execute('ALTER TABLE punch_records ADD COLUMN approved TINYINT(1) NOT NULL DEFAULT 0')
+            print("✓ punch_records 表添加 approved 字段成功")
+
+        if table_exists('punch_records') and not table_column_exists('punch_records', 'is_urge'):
+            cursor.execute('ALTER TABLE punch_records ADD COLUMN is_urge TINYINT(1) NOT NULL DEFAULT 0')
+            print("✓ punch_records 表添加 is_urge 字段成功")
 
         # 兼容旧数据：将 NULL 的 score_add 补齐为 0.30
         try:

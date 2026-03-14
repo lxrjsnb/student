@@ -127,6 +127,43 @@ def _ensure_schema_once():
             if conn:
                 conn.close()
 
+_punch_schema_checked = False
+_punch_schema_lock = threading.Lock()
+
+def _ensure_punch_records_schema_once():
+    global _punch_schema_checked
+    if _punch_schema_checked:
+        return
+
+    with _punch_schema_lock:
+        if _punch_schema_checked:
+            return
+
+        conn = None
+        cursor = None
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SHOW COLUMNS FROM punch_records LIKE 'approved'")
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE punch_records ADD COLUMN approved TINYINT(1) NOT NULL DEFAULT 0")
+                # 兼容旧数据：新增 approved 字段时，历史记录默认视为已通过
+                cursor.execute("UPDATE punch_records SET approved = 1 WHERE approved = 0")
+                conn.commit()
+
+            cursor.execute("SHOW COLUMNS FROM punch_records LIKE 'is_urge'")
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE punch_records ADD COLUMN is_urge TINYINT(1) NOT NULL DEFAULT 0")
+                conn.commit()
+            _punch_schema_checked = True
+        except Exception as e:
+            logger.error(f"初始化 punch_records.approved 失败（可忽略但会影响审批）: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
 def _read_bearer_token():
     auth = request.headers.get('Authorization') or ''
     if not auth.startswith('Bearer '):
@@ -489,6 +526,8 @@ def punch():
     if not user_id:
         return jsonify({'code': 400, 'msg': '缺少用户ID'}), 400
 
+    _ensure_punch_records_schema_once()
+
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -508,15 +547,29 @@ def punch():
     
     # 插入打卡记录
     cursor.execute('INSERT INTO punch_records (user_id) VALUES (%s)', (user_id,))
+    record_id = cursor.lastrowid
     conn.commit()
+
+    # 返回待审批数量，便于前端展示“待审批”提示
+    pending_count = 0
+    try:
+        cursor.execute('SELECT COUNT(*) AS cnt FROM punch_records WHERE user_id = %s AND approved = 0', (user_id,))
+        row = cursor.fetchone() or {}
+        pending_count = int(row.get('cnt') or 0)
+    except Exception:
+        pending_count = 0
 
     cursor.close()
     conn.close()
 
     return jsonify({
         'code': 200, 
-        'msg': '打卡成功', 
-        'time': current_time.strftime('%Y-%m-%d %H:%M:%S')
+        'msg': '已提交管理员，待审批中',
+        'time': current_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'record_id': record_id,
+        'pending': {
+            'count': pending_count
+        }
     })
 
 # 4. 查询打卡记录接口
@@ -528,14 +581,135 @@ def get_records(user_id):
         if int(user_id) != int(token_user_id):
             return jsonify({'code': 403, 'msg': '无权限查看该用户记录'}), 403
 
+    _ensure_punch_records_schema_once()
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM punch_records WHERE user_id = %s ORDER BY punch_time DESC', (user_id,))
-    records = cursor.fetchall()
+
+    # 仅返回已审批通过的有效打卡记录
+    cursor.execute(
+        'SELECT * FROM punch_records WHERE user_id = %s AND approved = 1 ORDER BY punch_time DESC',
+        (user_id,)
+    )
+    records = cursor.fetchall() or []
+
+    pending_count = 0
+    pending_latest = None
+    try:
+        cursor.execute(
+            'SELECT COUNT(*) AS cnt, MAX(punch_time) AS latest FROM punch_records WHERE user_id = %s AND approved = 0',
+            (user_id,)
+        )
+        row = cursor.fetchone() or {}
+        pending_count = int(row.get('cnt') or 0)
+        pending_latest = row.get('latest')
+    except Exception:
+        pending_count = 0
+        pending_latest = None
+
     cursor.close()
     conn.close()
 
-    return jsonify({'code': 200, 'data': records})
+    pending_latest_text = None
+    try:
+        if pending_latest:
+            pending_latest_text = pending_latest.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        pending_latest_text = str(pending_latest) if pending_latest else None
+
+    return jsonify({
+        'code': 200,
+        'data': records,
+        'pending': {
+            'count': pending_count,
+            'latest_time': pending_latest_text
+        }
+    })
+
+# 4.1 查询用户提交的打卡审批消息（含待审批/通过/驳回）
+@app.route('/records/messages/<int:user_id>', methods=['GET'])
+@user_session_optional
+def get_punch_messages(user_id):
+    if not getattr(g, 'user_session', None):
+        if getattr(g, 'relogin_required', False):
+            return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
+        return jsonify({'code': 401, 'msg': '需要登录'}), 401
+
+    token_user_id = g.user_session.get('user_id')
+    if int(user_id) != int(token_user_id):
+        return jsonify({'code': 403, 'msg': '无权限查看该用户记录'}), 403
+
+    _ensure_punch_records_schema_once()
+
+    limit = request.args.get('limit')
+    try:
+        limit_int = int(limit or 50)
+    except Exception:
+        return jsonify({'code': 400, 'msg': 'limit 必须为数字'}), 400
+
+    if limit_int <= 0:
+        limit_int = 50
+    limit_int = min(limit_int, 200)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, punch_time, approved, is_urge
+            FROM punch_records
+            WHERE user_id = %s
+            ORDER BY punch_time DESC, id DESC
+            LIMIT %s
+            ''',
+            (user_id, limit_int)
+        )
+        rows = cursor.fetchall() or []
+        return jsonify({'code': 200, 'data': rows})
+    finally:
+        cursor.close()
+        conn.close()
+
+# 4.2 用户对待审批记录发起催办
+@app.route('/records/<int:record_id>/urge', methods=['POST'])
+@user_session_optional
+def urge_punch_record(record_id):
+    if not getattr(g, 'user_session', None):
+        if getattr(g, 'relogin_required', False):
+            return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
+        return jsonify({'code': 401, 'msg': '需要登录'}), 401
+
+    _ensure_punch_records_schema_once()
+    user_id = int(g.user_session.get('user_id'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            'SELECT id, user_id, approved, is_urge FROM punch_records WHERE id = %s LIMIT 1',
+            (record_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'code': 404, 'msg': '记录不存在'}), 404
+
+        if int(row.get('user_id') or 0) != user_id:
+            return jsonify({'code': 403, 'msg': '无权限操作该记录'}), 403
+
+        if int(row.get('approved') or 0) != 0:
+            return jsonify({'code': 400, 'msg': '该记录已处理，无法催办'}), 400
+
+        if int(row.get('is_urge') or 0) == 1:
+            return jsonify({'code': 200, 'msg': '已催办', 'updated': 0})
+
+        cursor.execute(
+            'UPDATE punch_records SET is_urge = 1 WHERE id = %s AND approved = 0',
+            (record_id,)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '催办成功', 'updated': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
 
 # 可选：前端刷新时校验 session_token
 @app.route('/me', methods=['GET'])
@@ -692,10 +866,11 @@ def get_all_users():
 @app.route('/admin/records', methods=['GET'])
 @admin_required
 def get_all_records():
+    _ensure_punch_records_schema_once()
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT pr.id, pr.user_id, u.username, pr.punch_time
+        SELECT pr.id, pr.user_id, u.username, pr.punch_time, pr.approved, pr.is_urge
         FROM punch_records pr
         JOIN users u ON pr.user_id = u.id
         ORDER BY pr.punch_time DESC
@@ -705,6 +880,218 @@ def get_all_records():
     conn.close()
 
     return jsonify({'code': 200, 'data': records})
+
+# 9. 查询待审批打卡记录（管理员）
+@app.route('/admin/punch-approvals', methods=['GET'])
+@admin_required
+def admin_get_punch_approvals():
+    _ensure_punch_records_schema_once()
+
+    user_id = (request.args.get('user_id') or '').strip()
+    username = (request.args.get('username') or '').strip()
+    start_date = (request.args.get('start_date') or '').strip()
+    end_date = (request.args.get('end_date') or '').strip()
+    status = (request.args.get('status') or 'pending').strip().lower()  # pending/approved/rejected/all
+    limit = request.args.get('limit')
+    page = request.args.get('page')
+    page_size = request.args.get('page_size')
+
+    clauses = []
+    params = []
+
+    # 审批界面只处理普通用户（不展示管理员/超级管理员）
+    # 兼容旧库：优先依赖 users.is_admin 字段（比 users.role 更稳定）
+    clauses.append('IFNULL(u.is_admin, 0) = 0')
+
+    if status == 'pending':
+        clauses.append('pr.approved = 0')
+    elif status == 'approved':
+        clauses.append('pr.approved = 1')
+    elif status == 'rejected':
+        clauses.append('pr.approved = -1')
+    elif status == 'all':
+        pass
+    else:
+        return jsonify({'code': 400, 'msg': 'status 参数错误'}), 400
+
+    if username:
+        clauses.append('(u.username LIKE %s OR u.nickname LIKE %s)')
+        like = f'%{username}%'
+        params.extend([like, like])
+
+    if user_id:
+        try:
+            user_id_int = int(user_id)
+        except Exception:
+            return jsonify({'code': 400, 'msg': 'user_id 必须为数字'}), 400
+        clauses.append('pr.user_id = %s')
+        params.append(user_id_int)
+
+    def _parse_date(s):
+        try:
+            return datetime.strptime(s, '%Y-%m-%d')
+        except Exception:
+            return None
+
+    start_dt = _parse_date(start_date) if start_date else None
+    end_dt = _parse_date(end_date) if end_date else None
+
+    if start_date and not start_dt:
+        return jsonify({'code': 400, 'msg': 'start_date 格式应为 YYYY-MM-DD'}), 400
+    if end_date and not end_dt:
+        return jsonify({'code': 400, 'msg': 'end_date 格式应为 YYYY-MM-DD'}), 400
+
+    if start_dt:
+        clauses.append('pr.punch_time >= %s')
+        params.append(start_dt.strftime('%Y-%m-%d 00:00:00'))
+    if end_dt:
+        clauses.append('pr.punch_time <= %s')
+        params.append((end_dt + timedelta(days=1) - timedelta(seconds=1)).strftime('%Y-%m-%d %H:%M:%S'))
+
+    where_sql = ('WHERE ' + ' AND '.join(clauses)) if clauses else ''
+
+    # 兼容旧前端：仅传 limit 的方式
+    if page is None and page_size is None and limit is not None:
+        try:
+            limit_int = int(limit)
+        except Exception:
+            return jsonify({'code': 400, 'msg': 'limit 必须为数字'}), 400
+        if limit_int <= 0:
+            limit_int = 2000
+        limit_int = min(limit_int, 5000)
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                f'''
+                SELECT pr.id, pr.user_id, u.username, u.nickname, pr.punch_time, pr.approved, pr.is_urge
+                FROM punch_records pr
+                JOIN users u ON pr.user_id = u.id
+                {where_sql}
+                ORDER BY pr.punch_time DESC, pr.id DESC
+                LIMIT %s
+                ''',
+                tuple(params + [limit_int])
+            )
+            records = cursor.fetchall()
+            return jsonify({'code': 200, 'data': records, 'meta': {'mode': 'limit', 'limit': limit_int}})
+        finally:
+            cursor.close()
+            conn.close()
+
+    # 新方式：分页加载
+    try:
+        page_int = int(page or 1)
+        page_size_int = int(page_size or 200)
+    except Exception:
+        return jsonify({'code': 400, 'msg': 'page/page_size 必须为数字'}), 400
+
+    if page_int <= 0:
+        page_int = 1
+    if page_size_int <= 0:
+        page_size_int = 200
+    page_size_int = min(page_size_int, 500)
+    offset = (page_int - 1) * page_size_int
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f'''
+            SELECT pr.id, pr.user_id, u.username, u.nickname, pr.punch_time, pr.approved, pr.is_urge
+            FROM punch_records pr
+            JOIN users u ON pr.user_id = u.id
+            {where_sql}
+            ORDER BY pr.punch_time DESC, pr.id DESC
+            LIMIT %s OFFSET %s
+            ''',
+            tuple(params + [page_size_int + 1, offset])
+        )
+        rows = cursor.fetchall() or []
+        has_more = len(rows) > page_size_int
+        records = rows[:page_size_int]
+        return jsonify({
+            'code': 200,
+            'data': records,
+            'meta': {
+                'mode': 'page',
+                'page': page_int,
+                'page_size': page_size_int,
+                'has_more': has_more
+            }
+        })
+    finally:
+        cursor.close()
+        conn.close()
+
+# 10. 批量审批通过打卡记录（管理员）
+@app.route('/admin/punch-approvals/approve', methods=['POST'])
+@admin_required
+def admin_approve_punch_records():
+    _ensure_punch_records_schema_once()
+
+    data = request.json or {}
+    record_ids = data.get('record_ids') or []
+    if not isinstance(record_ids, list) or not record_ids:
+        return jsonify({'code': 400, 'msg': 'record_ids 不能为空'}), 400
+
+    try:
+        record_ids = [int(x) for x in record_ids]
+    except Exception:
+        return jsonify({'code': 400, 'msg': 'record_ids 必须为数字数组'}), 400
+
+    placeholders = ','.join(['%s'] * len(record_ids))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f'''
+            UPDATE punch_records
+            SET approved = 1, is_urge = 0
+            WHERE id IN ({placeholders}) AND approved = 0
+            ''',
+            tuple(record_ids)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '审批成功', 'updated': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
+
+# 11. 批量驳回打卡记录（管理员）
+@app.route('/admin/punch-approvals/reject', methods=['POST'])
+@admin_required
+def admin_reject_punch_records():
+    _ensure_punch_records_schema_once()
+
+    data = request.json or {}
+    record_ids = data.get('record_ids') or []
+    if not isinstance(record_ids, list) or not record_ids:
+        return jsonify({'code': 400, 'msg': 'record_ids 不能为空'}), 400
+
+    try:
+        record_ids = [int(x) for x in record_ids]
+    except Exception:
+        return jsonify({'code': 400, 'msg': 'record_ids 必须为数字数组'}), 400
+
+    placeholders = ','.join(['%s'] * len(record_ids))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f'''
+            UPDATE punch_records
+            SET approved = -1, is_urge = 0
+            WHERE id IN ({placeholders}) AND approved = 0
+            ''',
+            tuple(record_ids)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '驳回成功', 'updated': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
 
 # 8. 删除打卡记录（管理员）
 @app.route('/admin/records/<int:record_id>', methods=['DELETE'])

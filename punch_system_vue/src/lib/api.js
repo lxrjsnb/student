@@ -77,6 +77,20 @@ export async function getRecords({ userId, sessionToken } = {}) {
   return res.data
 }
 
+export async function getPunchMessages({ userId, sessionToken, limit } = {}) {
+  const headers = { Authorization: `Bearer ${sessionToken}` }
+  const params = {}
+  if (limit) params.limit = limit
+  const res = await api.get(`/records/messages/${userId}`, { headers, params })
+  return res.data
+}
+
+export async function urgePunchRecord({ recordId, sessionToken } = {}) {
+  const headers = { Authorization: `Bearer ${sessionToken}` }
+  const res = await api.post(`/records/${recordId}/urge`, null, { headers })
+  return res.data
+}
+
 export async function adminLogin({ username, password }) {
   const res = await api.post('/admin/login', { username, password })
   return res.data
@@ -113,6 +127,42 @@ export async function getAllRecords({ token, role }) {
   const res = await adminApi.get('/admin/records', {
     headers: { Authorization: `Bearer ${token}` }
   })
+  return res.data
+}
+
+export async function getPunchApprovals({ token, userId, username, startDate, endDate, status, limit, page, pageSize } = {}) {
+  const params = {}
+  if (userId) params.user_id = userId
+  if (username) params.username = username
+  if (startDate) params.start_date = startDate
+  if (endDate) params.end_date = endDate
+  if (status) params.status = status
+  if (limit) params.limit = limit
+  if (page) params.page = page
+  if (pageSize) params.page_size = pageSize
+
+  const res = await adminApi.get('/admin/punch-approvals', {
+    headers: { Authorization: `Bearer ${token}` },
+    params
+  })
+  return res.data
+}
+
+export async function approvePunchRecords({ token, recordIds } = {}) {
+  const res = await adminApi.post(
+    '/admin/punch-approvals/approve',
+    { record_ids: recordIds },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return res.data
+}
+
+export async function rejectPunchRecords({ token, recordIds } = {}) {
+  const res = await adminApi.post(
+    '/admin/punch-approvals/reject',
+    { record_ids: recordIds },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
   return res.data
 }
 

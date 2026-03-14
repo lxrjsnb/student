@@ -2,7 +2,7 @@
   <section class="page">
     <header class="head">
       <div>
-        <p class="kicker">我的</p>
+        <p class="kicker">管理员</p>
         <h2 class="title">个人中心</h2>
       </div>
     </header>
@@ -10,21 +10,21 @@
     <div class="card">
       <div class="user">
         <div class="avatar" aria-hidden="true">
-          <img v-if="user?.avatar" class="avatarImg" :src="user.avatar" alt="头像" />
-          <span v-else>{{ user?.username?.charAt(0)?.toUpperCase() || '?' }}</span>
+          <span>{{ displayInitial }}</span>
         </div>
         <div class="uMeta">
           <p class="uName">
             {{ user?.username }}
-            <span v-if="isAdmin" class="tag">管理员</span>
+            <span class="tag">管理员</span>
           </p>
-          <p class="uSub">记录 {{ totalRecords }} 条</p>
+          <p class="uSub">角色：{{ roleText }}</p>
         </div>
       </div>
 
       <div class="actions">
-        <button class="btn ghost" type="button" @click="$emit('openSettings')">设置</button>
-        <button class="btn ghost" type="button" @click="$emit('openHistory')">查看历史</button>
+        <button v-if="user?.role === 'super_admin'" class="btn ghost" type="button" @click="$emit('goSuperAdmin')">
+          超级管理员控制台
+        </button>
         <button class="btn danger" type="button" @click="$emit('logout')">退出登录</button>
       </div>
     </div>
@@ -35,16 +35,17 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  user: { type: Object, default: null },
-  totalRecords: { type: Number, default: 0 },
-  todayCount: { type: Number, default: 0 },
-  latestRecord: { type: Object, default: null },
-  refreshing: { type: Boolean, default: false }
+  user: { type: Object, default: null }
 })
 
-defineEmits(['openHistory', 'openSettings', 'logout', 'refresh'])
+defineEmits(['logout', 'goSuperAdmin'])
 
-const isAdmin = computed(() => ['admin', 'super_admin'].includes(props.user?.role || ''))
+const roleText = computed(() => {
+  if (props.user?.role === 'super_admin') return '超级管理员'
+  return '管理员'
+})
+
+const displayInitial = computed(() => props.user?.username?.charAt(0)?.toUpperCase?.() || '?')
 </script>
 
 <style scoped>
@@ -70,7 +71,7 @@ const isAdmin = computed(() => ['admin', 'super_admin'].includes(props.user?.rol
 .title {
   margin: 4px 0 0;
   font-size: 18px;
-  font-weight: 900;
+  font-weight: 1000;
   letter-spacing: 0.2px;
   color: rgba(15, 23, 42, 0.9);
 }
@@ -104,13 +105,6 @@ const isAdmin = computed(() => ['admin', 'super_admin'].includes(props.user?.rol
   color: rgba(0, 95, 120, 1);
   background: linear-gradient(135deg, rgba(0, 168, 204, 0.18), rgba(254, 214, 227, 0.4));
   border: 1px solid rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-}
-
-.avatarImg {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .uName {
@@ -158,14 +152,10 @@ const isAdmin = computed(() => ['admin', 'super_admin'].includes(props.user?.rol
   color: rgba(15, 23, 42, 0.78);
 }
 
-.ghost:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .danger {
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.22);
   color: #b91c1c;
 }
 </style>
+
