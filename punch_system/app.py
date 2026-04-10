@@ -1,25 +1,42 @@
+import logging
+import os
+import secrets
+import sys
+import threading
+import time
+from datetime import datetime, timedelta
+from functools import wraps
+
+from db_env import get_db_config, load_env_file
+
+load_env_file()
+os.environ.setdefault('FLASK_SKIP_DOTENV', '1')
+
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 import pymysql
-from datetime import datetime, timedelta
-from functools import wraps
-import logging
-import sys
-import secrets
-import os
 from werkzeug.security import check_password_hash, generate_password_hash
-import threading
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "X-User-Role"]}})
 
 def _get_log_level():
-    level = (os.getenv('APP_LOG_LEVEL') or 'WARNING').strip().upper()
-    return getattr(logging, level, logging.WARNING)
+    level = (os.getenv('APP_LOG_LEVEL') or 'INFO').strip().upper()
+    return getattr(logging, level, logging.INFO)
 
 def _get_werkzeug_log_level():
-    level = (os.getenv('WERKZEUG_LOG_LEVEL') or 'ERROR').strip().upper()
-    return getattr(logging, level, logging.ERROR)
+    level = (os.getenv('WERKZEUG_LOG_LEVEL') or 'WARNING').strip().upper()
+    return getattr(logging, level, logging.WARNING)
+
+def _request_log_enabled():
+    return (os.getenv('REQUEST_LOG_ENABLED') or '1').strip() == '1'
+
+def _get_request_log_level():
+    level = (os.getenv('REQUEST_LOG_LEVEL') or 'INFO').strip().upper()
+    return getattr(logging, level, logging.INFO)
+
+def _get_bool_env(name, default='0'):
+    return (os.getenv(name) or default).strip() == '1'
 
 logging.basicConfig(
     level=_get_log_level(),
@@ -35,9 +52,25 @@ werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.setLevel(_get_werkzeug_log_level())
 werkzeug_logger.propagate = True
 
+@app.before_request
+def before_request():
+    g.request_started_at = time.perf_counter()
+
 @app.after_request
 def after_request(response):
-    if os.getenv('DEBUG_REQUEST_LOG') == '1':
+    if _request_log_enabled():
+        started_at = getattr(g, 'request_started_at', None)
+        duration_ms = ((time.perf_counter() - started_at) * 1000) if started_at else 0.0
+        logger.log(
+            _get_request_log_level(),
+            "request method=%s path=%s status=%s duration_ms=%.1f ip=%s",
+            request.method,
+            request.path,
+            response.status_code,
+            duration_ms,
+            request.headers.get('X-Forwarded-For', request.remote_addr),
+        )
+    elif os.getenv('DEBUG_REQUEST_LOG') == '1':
         logger.debug(
             "response status=%s method=%s path=%s",
             response.status_code,
@@ -46,14 +79,7 @@ def after_request(response):
         )
     return response
 
-DB_CONFIG = {
-    'host': '123.56.88.190',
-    'port': 3306,
-    'user': 'student',
-    'password': '123456',
-    'database': 'student',
-    'cursorclass': pymysql.cursors.DictCursor
-}
+DB_CONFIG = get_db_config()
 
 SESSION_TTL_DAYS = 30
 RELOGIN_AFTER_DAYS = int(os.getenv('RELOGIN_AFTER_DAYS') or '7')
@@ -1322,4 +1348,13 @@ if __name__ == '__main__':
             print(f"  {rule.methods} {rule.endpoint} {rule.rule}", flush=True)
         print("==================\n", flush=True)
     port = int(os.getenv('PORT') or 5000)
-    app.run(debug=True, port=port)
+    debug = _get_bool_env('FLASK_DEBUG', '1')
+    logger.info(
+        "starting server port=%s debug=%s db_host=%s db_name=%s request_log=%s",
+        port,
+        debug,
+        DB_CONFIG.get('host'),
+        DB_CONFIG.get('database'),
+        _request_log_enabled(),
+    )
+    app.run(debug=debug, port=port)

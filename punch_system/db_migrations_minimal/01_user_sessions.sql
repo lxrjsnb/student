@@ -9,4 +9,3 @@ CREATE TABLE IF NOT EXISTS user_sessions (
   KEY idx_user_id (user_id),
   KEY idx_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
