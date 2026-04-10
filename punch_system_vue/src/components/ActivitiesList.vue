@@ -1,21 +1,27 @@
 <template>
   <section class="page">
-    <header class="head">
+    <header class="hero">
       <div>
-        <p class="kicker">活动</p>
-        <h2 class="title">今天想参加哪一个？</h2>
+        <p class="eyebrow">Programs</p>
+        <h2 class="title">把活动页做成一个真正可浏览的内容库。</h2>
+        <p class="subtitle">每个活动都应该像一个独立栏目，而不是随手堆出来的列表项。</p>
       </div>
     </header>
 
-    <div class="list">
-      <button v-for="(a, idx) in activities" :key="a.id" class="item" type="button" @click="$emit('open', a.id)">
-        <div class="cover" :style="thumbStyle(idx)" aria-hidden="true">
-          <div class="coverOverlay" aria-hidden="true"></div>
-          <span class="chip">{{ a.date }}</span>
+    <div class="grid">
+      <button v-for="(a, idx) in activities" :key="a.id" class="card" type="button" @click="$emit('open', a.id)">
+        <div class="cover" :style="thumbStyle(idx)">
+          <div class="cover-noise"></div>
+          <span class="badge">{{ a.date }}</span>
+          <div class="cover-copy">
+            <p class="cover-kicker">Featured Track</p>
+            <h3>{{ a.title }}</h3>
+          </div>
         </div>
+
         <div class="meta">
-          <p class="name">{{ a.title }}</p>
           <p class="tagline">{{ a.tagline }}</p>
+          <span class="action">查看详情</span>
         </div>
       </button>
     </div>
@@ -31,119 +37,180 @@ defineEmits(['open'])
 
 function thumbStyle(index) {
   const palettes = [
-    ['#cfefff', '#e7fff6', 'rgba(0, 168, 204, 0.22)'],
-    ['#ffe7f1', '#fff6db', 'rgba(254, 214, 227, 0.35)'],
-    ['#d7ffe9', '#e8f1ff', 'rgba(34, 197, 94, 0.18)'],
-    ['#fff1d6', '#e9f7ff', 'rgba(245, 158, 11, 0.18)']
+    ['#183b4d', '#29546c', '#d7b178'],
+    ['#29413b', '#49655d', '#e2c58f'],
+    ['#62472f', '#8b6543', '#f1d8ac'],
+    ['#2f3a57', '#4e5d7f', '#d5c7a1']
   ]
   const [a, b, glow] = palettes[index % palettes.length]
   return {
-    background: `linear-gradient(135deg, ${a}, ${b})`,
-    boxShadow: `0 18px 44px ${glow}`
+    background: `linear-gradient(145deg, ${a}, ${b})`,
+    boxShadow: `0 24px 60px color-mix(in srgb, ${glow} 22%, transparent)`
   }
 }
 </script>
 
 <style scoped>
 .page {
-  padding: 18px 16px 92px;
-  max-width: 720px;
+  max-width: 1120px;
   margin: 0 auto;
+  padding: 32px 18px 120px;
 }
 
-.head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
+.hero {
+  margin-bottom: 24px;
 }
 
-.kicker {
-  margin: 0;
+.eyebrow {
+  margin: 0 0 10px;
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(24, 59, 77, 0.58);
 }
 
 .title {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  color: rgba(15, 23, 42, 0.9);
+  margin: 0;
+  max-width: 13ch;
+  font-size: clamp(32px, 4vw, 54px);
+  line-height: 1.02;
+  letter-spacing: -0.05em;
+  color: #152131;
 }
 
-.list {
-  display: grid;
-  gap: 12px;
+.subtitle {
+  margin: 14px 0 0;
+  max-width: 560px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: rgba(24, 33, 47, 0.62);
 }
 
-.item {
-  width: 100%;
+.grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  align-items: stretch;
-  padding: 12px 12px 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.66);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.card {
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 30px;
   text-align: left;
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 24px 64px rgba(20, 29, 41, 0.1);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.item:hover {
-  transform: translateY(-1px);
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 30px 80px rgba(20, 29, 41, 0.14);
 }
 
 .cover {
   position: relative;
-  width: 100%;
-  height: 160px;
-  border-radius: 16px;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  overflow: hidden;
+  min-height: 280px;
+  padding: 22px;
+  display: flex;
+  align-items: flex-end;
 }
 
-.coverOverlay {
+.cover::after {
+  content: '';
   position: absolute;
-  inset: -40%;
+  inset: 0;
   background:
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.6), transparent 42%),
-    radial-gradient(circle at 80% 30%, rgba(255, 255, 255, 0.35), transparent 46%),
-    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.2) 0 10px, transparent 10px 26px);
-  filter: blur(16px);
-  transform: rotate(8deg);
+    linear-gradient(180deg, transparent 20%, rgba(7, 13, 22, 0.2) 100%),
+    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.18), transparent 22%);
 }
 
-.name {
+.cover-noise {
+  position: absolute;
+  inset: -20%;
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0 12px, transparent 12px 28px),
+    radial-gradient(circle at 78% 20%, rgba(215, 177, 120, 0.24), transparent 20%);
+  transform: rotate(6deg);
+}
+
+.badge,
+.cover-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.badge {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(248, 244, 236, 0.96);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.cover-copy h3 {
+  margin: 8px 0 0;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: #f8f4ec;
+}
+
+.cover-kicker {
   margin: 0;
-  font-weight: 900;
-  color: rgba(15, 23, 42, 0.88);
-  letter-spacing: 0.2px;
+  font-size: 12px;
+  color: rgba(248, 244, 236, 0.72);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 22px 20px;
 }
 
 .tagline {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.62);
+  margin: 0;
+  color: rgba(24, 33, 47, 0.66);
+  line-height: 1.7;
+  font-size: 14px;
 }
 
-.chip {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(15, 23, 42, 0.72);
-  padding: 6px 10px;
+.action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(24, 59, 77, 0.08);
+  color: #183b4d;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

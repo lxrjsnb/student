@@ -1,33 +1,49 @@
 <template>
   <section class="page">
-    <header class="head">
-      <div>
-        <p class="kicker">我的</p>
-        <h2 class="title">个人中心</h2>
+    <header class="hero">
+      <div class="hero-main">
+        <div class="avatar" aria-hidden="true">
+          <img v-if="user?.avatar" class="avatar-img" :src="user.avatar" alt="头像" />
+          <span v-else>{{ user?.username?.charAt(0)?.toUpperCase() || '?' }}</span>
+        </div>
+
+        <div class="hero-copy">
+          <p class="eyebrow">Personal Workspace</p>
+          <h2 class="title">{{ user?.nickname || user?.username }}</h2>
+          <p class="subtitle">{{ isAdmin ? '管理员账号' : '普通用户账号' }} · 个人数据与账户设置中心</p>
+        </div>
       </div>
     </header>
 
-    <div class="card">
-      <div class="user">
-        <div class="avatar" aria-hidden="true">
-          <img v-if="user?.avatar" class="avatarImg" :src="user.avatar" alt="头像" />
-          <span v-else>{{ user?.username?.charAt(0)?.toUpperCase() || '?' }}</span>
-        </div>
-        <div class="uMeta">
-          <p class="uName">
-            {{ user?.username }}
-            <span v-if="isAdmin" class="tag">管理员</span>
-          </p>
-          <p class="uSub">记录 {{ totalRecords }} 条</p>
+    <section class="stats-grid">
+      <article class="stat-card">
+        <span class="stat-label">累计记录</span>
+        <strong class="stat-value">{{ totalRecords }}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">今日有效打卡</span>
+        <strong class="stat-value">{{ todayCount }}</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">最近一次</span>
+        <strong class="stat-value stat-value--small">{{ latestLabel }}</strong>
+      </article>
+    </section>
+
+    <section class="action-card">
+      <div class="action-row">
+        <div>
+          <p class="action-kicker">Account</p>
+          <h3>管理资料、历史记录与退出</h3>
         </div>
       </div>
 
       <div class="actions">
-        <button class="btn ghost" type="button" @click="$emit('openSettings')">设置</button>
-        <button class="btn ghost" type="button" @click="$emit('openHistory')">查看历史</button>
-        <button class="btn danger" type="button" @click="$emit('logout')">退出登录</button>
+        <button class="btn btn--primary" type="button" @click="$emit('openSettings')">账户设置</button>
+        <button class="btn btn--ghost" type="button" @click="$emit('openHistory')">查看历史</button>
+        <button class="btn btn--danger" type="button" @click="$emit('logout')">退出登录</button>
       </div>
-    </div>
+    </section>
   </section>
 </template>
 
@@ -45,127 +61,179 @@ const props = defineProps({
 defineEmits(['openHistory', 'openSettings', 'logout', 'refresh'])
 
 const isAdmin = computed(() => ['admin', 'super_admin'].includes(props.user?.role || ''))
+
+const latestLabel = computed(() => {
+  const raw = props.latestRecord?.punch_time
+  if (!raw) return '暂无'
+  return String(raw).replace('T', ' ').slice(0, 16)
+})
 </script>
 
 <style scoped>
 .page {
-  padding: 18px 16px 92px;
-  width: 100%;
-}
-
-.head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.kicker {
-  margin: 0;
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
-}
-
-.title {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  color: rgba(15, 23, 42, 0.9);
-}
-
-.card {
-  width: 100%;
-  max-width: 420px;
+  max-width: 1120px;
   margin: 0 auto;
-  border-radius: 20px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
+  padding: 32px 18px 120px;
 }
 
-.user {
+.hero {
+  border-radius: 34px;
+  padding: 26px;
+  background:
+    linear-gradient(145deg, rgba(24, 59, 77, 0.96), rgba(39, 63, 78, 0.94)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent);
+  color: #f8f4ec;
+  box-shadow: 0 28px 90px rgba(20, 29, 41, 0.16);
+}
+
+.hero-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 18px;
 }
 
 .avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 18px;
+  width: 88px;
+  height: 88px;
+  border-radius: 28px;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  font-weight: 1000;
-  color: rgba(0, 95, 120, 1);
-  background: linear-gradient(135deg, rgba(0, 168, 204, 0.18), rgba(254, 214, 227, 0.4));
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  overflow: hidden;
+  background: linear-gradient(145deg, #e2c58f, #b78b4a);
+  color: #152131;
+  font-size: 32px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
 }
 
-.avatarImg {
+.avatar-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.uName {
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(248, 244, 236, 0.62);
+  font-weight: 800;
+}
+
+.title {
   margin: 0;
-  font-weight: 1000;
-  color: rgba(15, 23, 42, 0.9);
-  letter-spacing: 0.2px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
+  font-size: clamp(30px, 4vw, 50px);
+  line-height: 1;
+  letter-spacing: -0.05em;
 }
 
-.tag {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(0, 168, 204, 0.12);
-  border: 1px solid rgba(0, 168, 204, 0.18);
-  color: rgba(0, 95, 120, 1);
+.subtitle {
+  margin: 10px 0 0;
+  color: rgba(248, 244, 236, 0.7);
+  font-size: 14px;
 }
 
-.uSub {
-  margin: 6px 0 0;
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.stat-card,
+.action-card {
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  box-shadow: 0 24px 64px rgba(20, 29, 41, 0.08);
+}
+
+.stat-card {
+  min-height: 148px;
+  padding: 22px;
+  display: grid;
+  align-content: space-between;
+}
+
+.stat-label,
+.action-kicker {
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(24, 59, 77, 0.54);
+}
+
+.stat-value {
+  font-size: 42px;
+  line-height: 0.98;
+  letter-spacing: -0.06em;
+  color: #152131;
+}
+
+.stat-value--small {
+  font-size: 24px;
+}
+
+.action-card {
+  margin-top: 18px;
+  padding: 24px;
+}
+
+.action-row h3 {
+  margin: 8px 0 0;
+  font-size: 32px;
+  line-height: 1.04;
+  letter-spacing: -0.05em;
+  color: #152131;
 }
 
 .actions {
-  margin-top: 14px;
+  margin-top: 22px;
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .btn {
-  width: 100%;
+  min-height: 58px;
+  border-radius: 18px;
   border: 0;
-  border-radius: 16px;
-  padding: 12px 14px;
-  font-weight: 900;
+  font-size: 14px;
+  font-weight: 800;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
 }
 
-.ghost {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: rgba(15, 23, 42, 0.78);
+.btn:hover {
+  transform: translateY(-1px);
 }
 
-.ghost:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.btn--primary {
+  background: linear-gradient(135deg, #183b4d, #29546c);
+  color: #f8f4ec;
+  box-shadow: 0 18px 30px rgba(24, 59, 77, 0.18);
 }
 
-.danger {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.22);
-  color: #b91c1c;
+.btn--ghost {
+  background: rgba(24, 59, 77, 0.08);
+  color: #183b4d;
+}
+
+.btn--danger {
+  background: rgba(154, 47, 39, 0.1);
+  color: #9a2f27;
+}
+
+@media (max-width: 760px) {
+  .hero-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .stats-grid,
+  .actions {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

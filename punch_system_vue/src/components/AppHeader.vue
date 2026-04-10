@@ -4,7 +4,7 @@
       <div class="brand">
         <div class="brand__mark" aria-hidden="true">打</div>
         <div class="brand__meta">
-          <div class="brand__title">打卡系统</div>
+          <div class="brand__title">迹刻</div>
           <div class="brand__sub">规范化考勤 / 打卡记录</div>
         </div>
       </div>

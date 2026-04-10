@@ -142,7 +142,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { adminLogin, login, logout as apiLogout, me, punch, getPunchMessages, getRecords, register, urgePunchRecord } from './lib/api'
+import { API_BASE_URL, adminLogin, login, logout as apiLogout, me, punch, getPunchMessages, getRecords, register, urgePunchRecord } from './lib/api'
 import AuthCard from './components/AuthCard.vue'
 import AdminLogin from './components/AdminLogin.vue'
 import AdminPanel from './components/AdminPanel.vue'
@@ -172,7 +172,7 @@ const STORAGE_KEY_ADMIN_TOKEN = 'punch_admin_token'
 
 const LOGIN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-const apiBaseUrl = import.meta.env?.VITE_API_BASE_URL?.trim() || 'http://127.0.0.1:5000'
+const apiBaseUrl = API_BASE_URL
 
 const now = ref(new Date())
 const nowText = computed(() => now.value.toLocaleString('zh-CN', { hour12: false }))
@@ -807,18 +807,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-container {
-  display: flex;
   min-height: 100vh;
-  justify-content: center;
-  align-items: center;
+  width: 100%;
 }
 
 .page {
   width: 100%;
-  max-width: 1200px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   background: transparent;
 }
 
@@ -1350,20 +1346,12 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-body {
-  font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--app-bg, linear-gradient(135deg, #a8edea 0%, #fed6e3 100%));
-  min-height: 100vh;
-  color: var(--text);
-}
-
 .login-container {
-  position: fixed;
-  inset: 0;
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
-  padding: 24px;
+  padding: 28px;
+  width: 100%;
 }
 </style>

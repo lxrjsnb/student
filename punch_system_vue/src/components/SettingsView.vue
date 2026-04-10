@@ -2,76 +2,89 @@
   <section class="page">
     <header class="head">
       <button class="back" type="button" @click="$emit('back')">返回</button>
-      <div>
-        <p class="kicker">我的</p>
-        <h2 class="title">设置</h2>
+      <div class="head-copy">
+        <p class="eyebrow">Settings</p>
+        <h2 class="title">账户设置</h2>
       </div>
-      <div class="spacer" />
     </header>
 
-    <div class="card">
-      <div class="rowTop">
-        <div class="avatar" aria-hidden="true">
-          <img v-if="previewAvatar" class="avatarImg" :src="previewAvatar" alt="头像预览" />
-          <span v-else>{{ user?.username?.charAt(0)?.toUpperCase() || '?' }}</span>
-        </div>
-        <div class="meta">
-          <div class="name">{{ user?.username }}</div>
-          <div class="sub">内部 ID：{{ user?.id }}</div>
-        </div>
+    <section class="profile-hero">
+      <div class="avatar" aria-hidden="true">
+        <img v-if="previewAvatar" class="avatar-img" :src="previewAvatar" alt="头像预览" />
+        <span v-else>{{ user?.username?.charAt(0)?.toUpperCase() || '?' }}</span>
       </div>
+      <div>
+        <h3 class="hero-name">{{ user?.username }}</h3>
+        <p class="hero-sub">用户 ID：{{ user?.id }}</p>
+      </div>
+    </section>
 
-      <div class="section">
-        <div class="sectionTitle">ID（登录账号）</div>
-        <div class="field">
-          <label class="label">新 ID</label>
+    <div class="grid">
+      <section class="card">
+        <p class="card-kicker">Identity</p>
+        <h3 class="card-title">修改登录账号</h3>
+
+        <label class="field">
+          <span>新 ID</span>
           <input v-model.trim="nextUsername" class="input" type="text" placeholder="请输入新的登录 ID" :disabled="isBuiltinAdmin" />
-        </div>
-        <div class="field">
-          <label class="label">当前密码</label>
-          <input v-model="usernamePassword" class="input" type="password" placeholder="用于验证身份" :disabled="isBuiltinAdmin" />
-        </div>
-        <button class="btn" type="button" :disabled="usernameSaving || isBuiltinAdmin" @click="saveUsername">
-          {{ usernameSaving ? '保存中…' : '保存 ID' }}
-        </button>
-      </div>
+        </label>
 
-      <div class="section">
-        <div class="sectionTitle">头像</div>
-        <div class="field">
-          <label class="label">上传头像</label>
-          <input class="file" type="file" accept="image/*" :disabled="avatarSaving" @change="onPickAvatar" />
-        </div>
+        <label class="field">
+          <span>当前密码</span>
+          <input v-model="usernamePassword" class="input" type="password" placeholder="用于验证身份" :disabled="isBuiltinAdmin" />
+        </label>
+
+        <button class="btn btn--primary" type="button" :disabled="usernameSaving || isBuiltinAdmin" @click="saveUsername">
+          {{ usernameSaving ? '保存中…' : '保存账号' }}
+        </button>
+      </section>
+
+      <section class="card">
+        <p class="card-kicker">Avatar</p>
+        <h3 class="card-title">更新头像</h3>
+
+        <label class="field">
+          <span>上传图片</span>
+          <input class="input file" type="file" accept="image/*" :disabled="avatarSaving" @change="onPickAvatar" />
+        </label>
+
         <div class="row">
-          <button class="btn ghost" type="button" :disabled="avatarSaving || !previewAvatar" @click="clearAvatar">移除头像</button>
-          <button class="btn" type="button" :disabled="avatarSaving || !previewAvatar" @click="saveAvatar">
+          <button class="btn btn--ghost" type="button" :disabled="avatarSaving || !previewAvatar" @click="clearAvatar">移除</button>
+          <button class="btn btn--primary" type="button" :disabled="avatarSaving || !previewAvatar" @click="saveAvatar">
             {{ avatarSaving ? '保存中…' : '保存头像' }}
           </button>
         </div>
-      </div>
+      </section>
 
-      <div class="section">
-        <div class="sectionTitle">密码</div>
-        <div class="field">
-          <label class="label">旧密码</label>
-          <input v-model="oldPassword" class="input" type="password" placeholder="请输入旧密码" :disabled="isBuiltinAdmin" />
+      <section class="card card--wide">
+        <p class="card-kicker">Security</p>
+        <h3 class="card-title">修改密码</h3>
+
+        <div class="password-grid">
+          <label class="field">
+            <span>旧密码</span>
+            <input v-model="oldPassword" class="input" type="password" placeholder="请输入旧密码" :disabled="isBuiltinAdmin" />
+          </label>
+
+          <label class="field">
+            <span>新密码</span>
+            <input v-model="newPassword" class="input" type="password" placeholder="至少 6 位" :disabled="isBuiltinAdmin" />
+          </label>
+
+          <label class="field">
+            <span>确认新密码</span>
+            <input v-model="confirmPassword" class="input" type="password" placeholder="再次输入新密码" :disabled="isBuiltinAdmin" />
+          </label>
         </div>
-        <div class="field">
-          <label class="label">新密码</label>
-          <input v-model="newPassword" class="input" type="password" placeholder="请输入新密码" :disabled="isBuiltinAdmin" />
-        </div>
-        <div class="field">
-          <label class="label">确认新密码</label>
-          <input v-model="confirmPassword" class="input" type="password" placeholder="再次输入新密码" :disabled="isBuiltinAdmin" />
-        </div>
-        <button class="btn" type="button" :disabled="passwordSaving || isBuiltinAdmin" @click="savePassword">
-          {{ passwordSaving ? '保存中…' : '修改密码' }}
+
+        <button class="btn btn--primary" type="button" :disabled="passwordSaving || isBuiltinAdmin" @click="savePassword">
+          {{ passwordSaving ? '保存中…' : '更新密码' }}
         </button>
-      </div>
-
-      <p v-if="message" class="msg" :class="`msg--${messageType}`">{{ message }}</p>
-      <p v-if="isBuiltinAdmin" class="tip">内置管理员账号不支持在此处修改 ID/密码。</p>
+      </section>
     </div>
+
+    <p v-if="message" class="msg" :class="`msg--${messageType}`">{{ message }}</p>
+    <p v-if="isBuiltinAdmin" class="tip">内置管理员账号不支持在此处修改 ID 或密码。</p>
   </section>
 </template>
 
@@ -131,7 +144,7 @@ async function saveUsername() {
     if (data.code === 200) {
       emit('updated', { username })
       usernamePassword.value = ''
-      setMsg('ID 已更新。', 'success')
+      setMsg('账号已更新。', 'success')
       return
     }
     setMsg(data.msg || '保存失败。', 'error')
@@ -149,7 +162,7 @@ function onPickAvatar(e) {
   const reader = new FileReader()
   reader.onload = () => {
     previewAvatar.value = String(reader.result || '')
-    setMsg('已选择头像，点击“保存头像”生效。', 'info')
+    setMsg('已选择头像，点击“保存头像”后生效。', 'info')
   }
   reader.onerror = () => setMsg('读取图片失败。', 'error')
   reader.readAsDataURL(file)
@@ -157,7 +170,7 @@ function onPickAvatar(e) {
 
 function clearAvatar() {
   previewAvatar.value = ''
-  setMsg('头像已移除，点击“保存头像”生效。', 'info')
+  setMsg('头像已移除，点击“保存头像”后生效。', 'info')
 }
 
 async function saveAvatar() {
@@ -199,187 +212,224 @@ async function savePassword() {
 
 <style scoped>
 .page {
-  padding: 18px 16px 42px;
-  max-width: 560px;
+  max-width: 1120px;
   margin: 0 auto;
+  padding: 32px 18px 120px;
 }
 
 .head {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: end;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.spacer {
-  width: 48px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
 }
 
 .back {
   border: 0;
-  border-radius: 14px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: rgba(15, 23, 42, 0.78);
-  font-weight: 900;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #183b4d;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: 0 14px 30px rgba(20, 29, 41, 0.08);
 }
 
-.kicker {
-  margin: 0;
+.eyebrow,
+.card-kicker {
+  margin: 0 0 8px;
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(24, 59, 77, 0.58);
+}
+
+.title,
+.card-title {
+  margin: 0;
+  line-height: 1.04;
+  letter-spacing: -0.05em;
+  color: #152131;
 }
 
 .title {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  color: rgba(15, 23, 42, 0.9);
+  font-size: clamp(30px, 4vw, 48px);
 }
 
-.card {
-  width: 100%;
-  max-width: 560px;
-  margin: 0 auto;
-  border-radius: 20px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
-}
-
-.rowTop {
+.profile-hero {
+  border-radius: 30px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  box-shadow: 0 24px 64px rgba(20, 29, 41, 0.08);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+  gap: 16px;
 }
 
 .avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 18px;
+  width: 78px;
+  height: 78px;
+  border-radius: 24px;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  font-weight: 1000;
-  color: rgba(0, 95, 120, 1);
-  background: linear-gradient(135deg, rgba(0, 168, 204, 0.18), rgba(254, 214, 227, 0.4));
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  overflow: hidden;
+  background: linear-gradient(145deg, #e2c58f, #b78b4a);
+  color: #152131;
+  font-size: 28px;
+  font-weight: 900;
 }
 
-.avatarImg {
+.avatar-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.name {
-  font-weight: 1000;
-  color: rgba(15, 23, 42, 0.9);
+.hero-name {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: #152131;
 }
 
-.sub {
-  margin-top: 4px;
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
+.hero-sub {
+  margin: 8px 0 0;
+  color: rgba(24, 33, 47, 0.58);
 }
 
-.section {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+.grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
 }
 
-.sectionTitle {
-  font-weight: 1000;
-  color: rgba(15, 23, 42, 0.88);
-  margin-bottom: 10px;
+.card {
+  border-radius: 28px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  box-shadow: 0 24px 64px rgba(20, 29, 41, 0.08);
+}
+
+.card--wide {
+  grid-column: 1 / -1;
+}
+
+.card-title {
+  font-size: 30px;
 }
 
 .field {
   display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-top: 16px;
 }
 
-.label {
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
-  font-weight: 900;
+.field span {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(24, 33, 47, 0.66);
 }
 
 .input {
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.75);
-  border-radius: 14px;
-  padding: 11px 12px;
-  font-weight: 700;
-  color: rgba(15, 23, 42, 0.85);
+  min-height: 54px;
+  border-radius: 18px;
+  border: 1px solid rgba(24, 33, 47, 0.1);
+  background: rgba(255, 255, 255, 0.84);
+  padding: 0 16px;
+  color: #18212f;
+  outline: none;
 }
 
 .file {
-  border: 1px dashed rgba(0, 0, 0, 0.16);
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 14px;
-  padding: 10px 12px;
+  padding-top: 14px;
+}
+
+.password-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
 }
 
 .row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
 }
 
 .btn {
-  width: 100%;
+  min-height: 54px;
+  padding: 0 18px;
+  border-radius: 18px;
   border: 0;
-  border-radius: 16px;
-  padding: 12px 14px;
-  font-weight: 1000;
-  background: rgba(0, 168, 204, 0.22);
-  border: 1px solid rgba(0, 168, 204, 0.28);
-  color: rgba(0, 95, 120, 1);
+  font-size: 14px;
+  font-weight: 800;
 }
 
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.btn--primary {
+  background: linear-gradient(135deg, #183b4d, #29546c);
+  color: #f8f4ec;
 }
 
-.ghost {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: rgba(15, 23, 42, 0.78);
+.btn--ghost {
+  background: rgba(24, 59, 77, 0.08);
+  color: #183b4d;
 }
 
-.msg {
-  margin: 12px 0 0;
-  font-size: 13px;
-  font-weight: 900;
+.msg,
+.tip {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .msg--success {
-  color: #16a34a;
+  background: rgba(17, 97, 73, 0.1);
+  color: #116149;
 }
 
 .msg--error {
-  color: #dc2626;
+  background: rgba(154, 47, 39, 0.1);
+  color: #9a2f27;
 }
 
 .msg--info {
-  color: rgba(15, 23, 42, 0.72);
+  background: rgba(24, 59, 77, 0.08);
+  color: #183b4d;
 }
 
 .tip {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.55);
+  background: rgba(191, 133, 36, 0.1);
+  color: #84581c;
+}
+
+@media (max-width: 900px) {
+  .grid,
+  .password-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .head,
+  .profile-hero,
+  .row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .row .btn {
+    width: 100%;
+  }
 }
 </style>

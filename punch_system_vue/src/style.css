@@ -1,26 +1,37 @@
 :root {
-  --bg: #f8fafc;
-  --app-bg: linear-gradient(180deg, #cfefff 0%, #e7fff6 45%, #fff3f8 100%);
-  --panel: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --border: #e5e7eb;
-  --primary: #00a8cc;
-  --primary-ink: #ffffff;
-  --accent: #7c3aed;
-  --accent2: #06b6d4;
-  --accent3: #f97316;
-  --success-bg: #ecfdf5;
-  --success-ink: #065f46;
-  --danger-bg: #fef2f2;
-  --danger-ink: #991b1b;
-  --warn-bg: #fffbeb;
-  --warn-ink: #92400e;
-  --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-  --shadow-strong: 0 22px 60px rgba(15, 23, 42, 0.14);
+  --bg: #f5f1e8;
+  --app-bg:
+    radial-gradient(circle at 12% 18%, rgba(228, 196, 120, 0.22), transparent 26%),
+    radial-gradient(circle at 84% 20%, rgba(120, 149, 133, 0.18), transparent 24%),
+    radial-gradient(circle at 50% 88%, rgba(52, 71, 97, 0.18), transparent 34%),
+    linear-gradient(180deg, #faf7f1 0%, #f2ede3 42%, #ebe2d2 100%);
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-strong: rgba(255, 255, 255, 0.9);
+  --panel-dark: #122033;
+  --text: #18212f;
+  --text-soft: #344357;
+  --muted: #6e7d92;
+  --border: rgba(24, 33, 47, 0.08);
+  --border-strong: rgba(24, 33, 47, 0.14);
+  --primary: #183b4d;
+  --primary-soft: #29546c;
+  --primary-ink: #f8f4ec;
+  --accent: #b78b4a;
+  --accent-2: #6d8b74;
+  --accent-3: #d7b178;
+  --success-bg: rgba(24, 132, 86, 0.12);
+  --success-ink: #116149;
+  --danger-bg: rgba(190, 65, 54, 0.12);
+  --danger-ink: #9a2f27;
+  --warn-bg: rgba(191, 133, 36, 0.14);
+  --warn-ink: #84581c;
+  --shadow: 0 20px 55px rgba(34, 42, 56, 0.1);
+  --shadow-strong: 0 28px 90px rgba(21, 29, 39, 0.18);
+  --radius-xl: 32px;
+  --radius-lg: 24px;
+  --radius-md: 18px;
 
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
-    Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: "Avenir Next", "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color: var(--text);
@@ -38,6 +49,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: var(--app-bg);
+  color: var(--text);
 }
 
 button,
@@ -72,17 +84,12 @@ a {
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(circle at 18% 18%, rgba(255, 241, 138, 0.9) 0%, rgba(255, 241, 138, 0.35) 18%, transparent 36%),
-    radial-gradient(120px 60px at 65% 22%, rgba(255, 255, 255, 0.95) 0 55%, transparent 56%),
-    radial-gradient(160px 80px at 72% 24%, rgba(255, 255, 255, 0.85) 0 55%, transparent 56%),
-    radial-gradient(140px 70px at 57% 26%, rgba(255, 255, 255, 0.75) 0 55%, transparent 56%),
-    radial-gradient(140px 70px at 25% 32%, rgba(255, 255, 255, 0.75) 0 55%, transparent 56%),
-    radial-gradient(180px 90px at 33% 34%, rgba(255, 255, 255, 0.65) 0 55%, transparent 56%),
-    radial-gradient(160px 80px at 18% 36%, rgba(255, 255, 255, 0.55) 0 55%, transparent 56%),
-    radial-gradient(circle at 85% 55%, rgba(0, 168, 204, 0.14), transparent 55%),
-    radial-gradient(circle at 30% 70%, rgba(254, 214, 227, 0.22), transparent 55%);
-  filter: blur(18px);
-  opacity: 0.95;
+    radial-gradient(circle at 22% 14%, rgba(233, 203, 142, 0.72), transparent 18%),
+    radial-gradient(circle at 77% 24%, rgba(129, 162, 144, 0.34), transparent 20%),
+    radial-gradient(circle at 48% 56%, rgba(255, 255, 255, 0.5), transparent 25%),
+    linear-gradient(140deg, rgba(255, 255, 255, 0.5), transparent 50%);
+  filter: blur(24px);
+  opacity: 0.92;
 }
 
 .bgFX::after {
@@ -90,9 +97,13 @@ a {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(1400px 420px at 50% 112%, rgba(106, 182, 161, 0.9) 0 56%, transparent 57%),
-    radial-gradient(1100px 360px at 22% 118%, rgba(86, 156, 136, 0.85) 0 56%, transparent 57%),
-    radial-gradient(1100px 360px at 80% 122%, rgba(124, 196, 172, 0.8) 0 56%, transparent 57%),
-    linear-gradient(to top, rgba(12, 74, 110, 0.08), transparent 38%),
-    radial-gradient(900px 180px at 50% 100%, rgba(255, 255, 255, 0.22) 0 60%, transparent 61%);
+    radial-gradient(1400px 420px at 50% 118%, rgba(24, 59, 77, 0.2) 0 52%, transparent 53%),
+    radial-gradient(1100px 320px at 12% 112%, rgba(171, 130, 74, 0.24) 0 54%, transparent 55%),
+    radial-gradient(1100px 320px at 88% 114%, rgba(109, 139, 116, 0.18) 0 54%, transparent 55%),
+    linear-gradient(to top, rgba(255, 255, 255, 0.16), transparent 34%);
+}
+
+::selection {
+  background: rgba(24, 59, 77, 0.18);
+  color: var(--text);
 }
