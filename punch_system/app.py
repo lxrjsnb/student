@@ -5,8 +5,11 @@ import secrets
 import sys
 import threading
 import time
+import json
+import ast
 from datetime import datetime, timedelta
 from functools import wraps
+from pathlib import Path
 
 from db_env import get_db_config, load_env_file
 
@@ -142,6 +145,43 @@ def _ensure_schema_once():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 '''
             )
+            cursor.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS temporary_super_admin_grants (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  user_id INT NOT NULL,
+                  granted_by INT NOT NULL,
+                  duration_hours INT NOT NULL DEFAULT 24,
+                  starts_at DATETIME NOT NULL,
+                  expires_at DATETIME NOT NULL,
+                  revoked_at DATETIME NULL DEFAULT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  KEY idx_user_expires (user_id, expires_at),
+                  KEY idx_granted_by (granted_by),
+                  KEY idx_active_window (starts_at, expires_at, revoked_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                '''
+            )
+            cursor.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS delegation_applications (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  user_id INT NOT NULL,
+                  username VARCHAR(50) NOT NULL,
+                  reason TEXT NOT NULL,
+                  status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+                  is_urge TINYINT(1) NOT NULL DEFAULT 0,
+                  reviewed_by INT NULL DEFAULT NULL,
+                  reviewed_at DATETIME NULL DEFAULT NULL,
+                  grant_id INT NULL DEFAULT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  KEY idx_user_status (user_id, status),
+                  KEY idx_status_created (status, created_at),
+                  KEY idx_reviewed_by (reviewed_by)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                '''
+            )
 
             def _ensure_users_column(column_name, ddl_sql):
                 cursor.execute("SHOW COLUMNS FROM users LIKE %s", (column_name,))
@@ -216,9 +256,190 @@ def _ensure_punch_records_schema_once():
             if not cursor.fetchone():
                 cursor.execute("ALTER TABLE punch_records ADD COLUMN is_urge TINYINT(1) NOT NULL DEFAULT 0")
                 conn.commit()
+
+            cursor.execute("SHOW COLUMNS FROM punch_records LIKE 'approved_by'")
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE punch_records ADD COLUMN approved_by INT NULL DEFAULT NULL")
+                conn.commit()
+
+            cursor.execute("SHOW COLUMNS FROM punch_records LIKE 'approved_at'")
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE punch_records ADD COLUMN approved_at DATETIME NULL DEFAULT NULL")
+                conn.commit()
             _punch_schema_checked = True
         except Exception as e:
             logger.error(f"初始化 punch_records.approved 失败（可忽略但会影响审批）: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+_activities_schema_checked = False
+_activities_schema_lock = threading.Lock()
+
+def _load_default_activities_seed():
+    seed_path = Path(__file__).resolve().parents[1] / 'punch_system_vue' / 'src' / 'lib' / 'activities.js'
+    if not seed_path.exists():
+        return []
+
+    text = seed_path.read_text(encoding='utf-8')
+    start = text.find('[')
+    end = text.rfind(']')
+    if start < 0 or end < 0 or end <= start:
+        return []
+
+    body = text[start:end + 1]
+    body = re.sub(r'(\b[A-Za-z_][A-Za-z0-9_]*\b)\s*:', r'"\1":', body)
+    try:
+        parsed = ast.literal_eval(body)
+    except Exception as exc:
+        logger.error(f"解析默认活动种子失败: {exc}")
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+def _serialize_activity_row(row):
+    def _loads_list(value):
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+
+    return {
+        'id': row.get('slug') or str(row.get('id')),
+        'db_id': row.get('id'),
+        'title': row.get('title') or '',
+        'category': row.get('category') or '',
+        'frequency': row.get('frequency') or '',
+        'duration': row.get('duration') or '',
+        'difficulty': row.get('difficulty') or '',
+        'scene': row.get('scene') or '',
+        'summary': row.get('summary') or '',
+        'tagline': row.get('tagline') or '',
+        'description': row.get('description') or '',
+        'highlights': _loads_list(row.get('highlights_json')),
+        'steps': _loads_list(row.get('steps_json')),
+        'tips': _loads_list(row.get('tips_json')),
+        'cover_image': row.get('cover_image') or '',
+        'status': row.get('status') or 'approved',
+        'submitted_by': row.get('created_by'),
+        'reviewed_by': row.get('reviewed_by'),
+        'reviewed_at': row.get('reviewed_at').strftime('%Y-%m-%d %H:%M:%S') if row.get('reviewed_at') else None,
+        'created_at': row.get('created_at').strftime('%Y-%m-%d %H:%M:%S') if row.get('created_at') else None,
+        'updated_at': row.get('updated_at').strftime('%Y-%m-%d %H:%M:%S') if row.get('updated_at') else None,
+    }
+
+def _seed_default_activities(cursor):
+    defaults = _load_default_activities_seed()
+    if not defaults:
+        return 0
+
+    inserted = 0
+    for index, item in enumerate(defaults):
+        cursor.execute(
+            '''
+            INSERT IGNORE INTO activities (
+              slug, title, category, frequency, duration, difficulty, scene,
+              summary, tagline, description, highlights_json, steps_json, tips_json,
+              cover_image, sort_order, is_active
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+            ''',
+            (
+                item.get('id') or f'activity-{index + 1}',
+                item.get('title') or '',
+                item.get('category') or '',
+                item.get('frequency') or '',
+                item.get('duration') or '',
+                item.get('difficulty') or '',
+                item.get('scene') or '',
+                item.get('summary') or '',
+                item.get('tagline') or '',
+                item.get('description') or '',
+                json.dumps(item.get('highlights') or [], ensure_ascii=False),
+                json.dumps(item.get('steps') or [], ensure_ascii=False),
+                json.dumps(item.get('tips') or [], ensure_ascii=False),
+                item.get('cover_image') or '',
+                index,
+            )
+        )
+        inserted += int(cursor.rowcount or 0)
+    return inserted
+
+def _ensure_activities_schema_once():
+    global _activities_schema_checked
+    if _activities_schema_checked:
+        return
+
+    with _activities_schema_lock:
+        if _activities_schema_checked:
+            return
+
+        conn = None
+        cursor = None
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS activities (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  slug VARCHAR(128) NOT NULL,
+                  title VARCHAR(120) NOT NULL,
+                  category VARCHAR(64) NOT NULL DEFAULT '',
+                  frequency VARCHAR(64) NOT NULL DEFAULT '',
+                  duration VARCHAR(64) NOT NULL DEFAULT '',
+                  difficulty VARCHAR(32) NOT NULL DEFAULT '',
+                  scene VARCHAR(128) NOT NULL DEFAULT '',
+                  summary TEXT,
+                  tagline VARCHAR(255) NOT NULL DEFAULT '',
+                  description TEXT,
+                  highlights_json LONGTEXT,
+                  steps_json LONGTEXT,
+                  tips_json LONGTEXT,
+                  cover_image LONGTEXT,
+                  sort_order INT NOT NULL DEFAULT 0,
+                  status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved',
+                  is_active TINYINT(1) NOT NULL DEFAULT 1,
+                  created_by INT NULL DEFAULT NULL,
+                  reviewed_by INT NULL DEFAULT NULL,
+                  reviewed_at DATETIME NULL DEFAULT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uniq_slug (slug),
+                  KEY idx_active_sort (is_active, sort_order, id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                '''
+            )
+            def _ensure_activity_column(column_name, ddl_sql):
+                cursor.execute("SHOW COLUMNS FROM activities LIKE %s", (column_name,))
+                if cursor.fetchone():
+                    return
+                cursor.execute(ddl_sql)
+
+            _ensure_activity_column(
+                'status',
+                "ALTER TABLE activities ADD COLUMN status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved' AFTER sort_order"
+            )
+            _ensure_activity_column(
+                'reviewed_by',
+                "ALTER TABLE activities ADD COLUMN reviewed_by INT NULL DEFAULT NULL AFTER created_by"
+            )
+            _ensure_activity_column(
+                'reviewed_at',
+                "ALTER TABLE activities ADD COLUMN reviewed_at DATETIME NULL DEFAULT NULL AFTER reviewed_by"
+            )
+            cursor.execute("UPDATE activities SET status = 'approved' WHERE status IS NULL OR status = ''")
+            cursor.execute('SELECT COUNT(*) AS total FROM activities')
+            total = int((cursor.fetchone() or {}).get('total') or 0)
+            if total == 0:
+                _seed_default_activities(cursor)
+            conn.commit()
+            _activities_schema_checked = True
+        except Exception as exc:
+            logger.error(f"初始化 activities 表失败: {exc}")
         finally:
             if cursor:
                 cursor.close()
@@ -455,11 +676,17 @@ def user_session_optional(f):
     return decorated_function
 
 def _get_user_role(user_id):
+    role_info = _get_role_info(user_id)
+    return role_info.get('effective_role')
+
+def _get_base_user_role(user_id, cursor=None):
     if not user_id:
         return None
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    own_conn = None
     try:
+        if cursor is None:
+            own_conn = get_db_connection()
+            cursor = own_conn.cursor()
         try:
             cursor.execute('SELECT role FROM users WHERE id = %s', (user_id,))
             row = cursor.fetchone() or {}
@@ -468,6 +695,63 @@ def _get_user_role(user_id):
             cursor.execute('SELECT is_admin FROM users WHERE id = %s', (user_id,))
             row = cursor.fetchone() or {}
             return 'admin' if int(row.get('is_admin') or 0) == 1 else 'user'
+    finally:
+        if own_conn:
+            cursor.close()
+            own_conn.close()
+
+def _get_role_info(user_id):
+    if not user_id:
+        return {
+            'base_role': None,
+            'effective_role': None,
+            'is_temporary_super_admin': False,
+            'grant_expires_at': None,
+            'grant_id': None
+        }
+
+    _ensure_schema_once()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        base_role = _get_base_user_role(user_id, cursor=cursor) or 'user'
+        role_info = {
+            'base_role': base_role,
+            'effective_role': base_role,
+            'is_temporary_super_admin': False,
+            'grant_expires_at': None,
+            'grant_id': None
+        }
+
+        if base_role != 'admin':
+            return role_info
+
+        try:
+            cursor.execute(
+                '''
+                SELECT id, expires_at
+                FROM temporary_super_admin_grants
+                WHERE user_id = %s
+                  AND revoked_at IS NULL
+                  AND starts_at <= NOW()
+                  AND expires_at > NOW()
+                ORDER BY expires_at DESC, id DESC
+                LIMIT 1
+                ''',
+                (user_id,)
+            )
+            grant = cursor.fetchone()
+        except Exception:
+            grant = None
+
+        if grant:
+            role_info['effective_role'] = 'super_admin'
+            role_info['is_temporary_super_admin'] = True
+            role_info['grant_expires_at'] = grant.get('expires_at')
+            role_info['grant_id'] = grant.get('id')
+
+        return role_info
     finally:
         cursor.close()
         conn.close()
@@ -491,12 +775,15 @@ def admin_required(f):
                 return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
             return jsonify({'code': 401, 'msg': '需要登录'}), 401
 
-        role = _get_user_role(session.get('user_id'))
+        role_info = _get_role_info(session.get('user_id'))
+        role = role_info.get('effective_role')
         if role not in ['admin', 'super_admin']:
             return jsonify({'code': 403, 'msg': '需要管理员权限'}), 403
 
         g.user_session = session
         g.user_role = role
+        g.base_user_role = role_info.get('base_role')
+        g.role_info = role_info
         return f(*args, **kwargs)
     return decorated_function
 
@@ -519,8 +806,11 @@ def user_required(f):
                 return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
             return jsonify({'code': 401, 'msg': '需要登录'}), 401
 
+        role_info = _get_role_info(session.get('user_id'))
         g.user_session = session
-        g.user_role = _get_user_role(session.get('user_id'))
+        g.user_role = role_info.get('effective_role')
+        g.base_user_role = role_info.get('base_role')
+        g.role_info = role_info
         return f(*args, **kwargs)
     return decorated_function
 
@@ -543,12 +833,15 @@ def super_admin_required(f):
                 return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
             return jsonify({'code': 401, 'msg': '需要登录'}), 401
 
-        role = _get_user_role(session.get('user_id'))
+        role_info = _get_role_info(session.get('user_id'))
+        role = role_info.get('effective_role')
         if role != 'super_admin':
             return jsonify({'code': 403, 'msg': '需要超级管理员权限'}), 403
 
         g.user_session = session
         g.user_role = role
+        g.base_user_role = role_info.get('base_role')
+        g.role_info = role_info
         return f(*args, **kwargs)
     return decorated_function
 
@@ -583,7 +876,9 @@ def login():
     conn.close()
 
     if user and _verify_password_and_maybe_upgrade(user, password):
-        role = user.get('role', 'user')
+        role_info = _get_role_info(user['id'])
+        role = role_info.get('effective_role') or user.get('role', 'user')
+        base_role = role_info.get('base_role') or user.get('role', 'user')
         is_admin = role in ['admin', 'super_admin']
         is_super_admin = role == 'super_admin'
         session_token = None
@@ -609,8 +904,11 @@ def login():
             'student_no': user.get('student_no') or '',
             'phone': user.get('phone') or '',
             'department': user.get('department') or '',
+            'base_role': base_role,
             'is_admin': is_admin,
             'is_super_admin': is_super_admin,
+            'is_temporary_super_admin': bool(role_info.get('is_temporary_super_admin')),
+            'grant_expires_at': role_info.get('grant_expires_at').strftime('%Y-%m-%d %H:%M:%S') if role_info.get('grant_expires_at') else None,
             'role': role,
             'session_token': session_token,
             'session_expires_at': session_expires_at.strftime('%Y-%m-%d %H:%M:%S') if session_expires_at else None,
@@ -901,7 +1199,8 @@ def me():
         user = cursor.fetchone()
         if not user:
             return jsonify({'code': 404, 'msg': '用户不存在'}), 404
-        role = user.get('role', 'user')
+        role_info = _get_role_info(user['id'])
+        role = role_info.get('effective_role') or user.get('role', 'user')
         return jsonify({
             'code': 200,
             'user_id': user['id'],
@@ -910,9 +1209,12 @@ def me():
             'student_no': user.get('student_no') or '',
             'phone': user.get('phone') or '',
             'department': user.get('department') or '',
+            'base_role': role_info.get('base_role') or user.get('role', 'user'),
             'role': role,
             'is_admin': role in ['admin', 'super_admin'],
             'is_super_admin': role == 'super_admin',
+            'is_temporary_super_admin': bool(role_info.get('is_temporary_super_admin')),
+            'grant_expires_at': role_info.get('grant_expires_at').strftime('%Y-%m-%d %H:%M:%S') if role_info.get('grant_expires_at') else None,
             'is_online': user.get('is_online', 0),
             'last_login_at': user.get('last_login_at').strftime('%Y-%m-%d %H:%M:%S') if user.get('last_login_at') else None,
             'last_logout_at': user.get('last_logout_at').strftime('%Y-%m-%d %H:%M:%S') if user.get('last_logout_at') else None,
@@ -944,6 +1246,239 @@ def logout():
 
     return jsonify({'code': 200, 'msg': '已退出'})
 
+def _normalize_text(value, default=''):
+    return str(value or default).strip()
+
+def _normalize_list(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item or '').strip()]
+    text = str(value or '').strip()
+    if not text:
+        return []
+    return [part.strip() for part in re.split(r'[\n,，]+', text) if part.strip()]
+
+@app.route('/activities', methods=['GET'])
+@user_required
+def get_activities():
+    _ensure_activities_schema_once()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, slug, title, category, frequency, duration, difficulty, scene,
+                   summary, tagline, description, highlights_json, steps_json, tips_json,
+                   cover_image, status, created_by, reviewed_by, reviewed_at, created_at, updated_at
+            FROM activities
+            WHERE is_active = 1 AND status = 'approved'
+            ORDER BY sort_order ASC, id ASC
+            '''
+        )
+        rows = cursor.fetchall() or []
+        return jsonify({'code': 200, 'data': [_serialize_activity_row(row) for row in rows]})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/admin/activities', methods=['GET'])
+@admin_required
+def get_admin_activities():
+    _ensure_activities_schema_once()
+    role = getattr(g, 'user_role', 'user')
+    current_user_id = int((g.user_session or {}).get('user_id') or 0)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, slug, title, category, frequency, duration, difficulty, scene,
+                   summary, tagline, description, highlights_json, steps_json, tips_json,
+                   cover_image, status, created_by, reviewed_by, reviewed_at, created_at, updated_at
+            FROM activities
+            WHERE status = 'approved' AND is_active = 1
+            ORDER BY sort_order ASC, id ASC
+            '''
+        )
+        approved_rows = cursor.fetchall() or []
+
+        cursor.execute(
+            '''
+            SELECT id, slug, title, category, frequency, duration, difficulty, scene,
+                   summary, tagline, description, highlights_json, steps_json, tips_json,
+                   cover_image, status, created_by, reviewed_by, reviewed_at, created_at, updated_at
+            FROM activities
+            WHERE created_by = %s AND status IN ('pending', 'rejected')
+            ORDER BY created_at DESC, id DESC
+            ''',
+            (current_user_id,)
+        )
+        own_rows = cursor.fetchall() or []
+
+        pending_rows = []
+        if role == 'super_admin':
+            cursor.execute(
+                '''
+                SELECT id, slug, title, category, frequency, duration, difficulty, scene,
+                       summary, tagline, description, highlights_json, steps_json, tips_json,
+                       cover_image, status, created_by, reviewed_by, reviewed_at, created_at, updated_at
+                FROM activities
+                WHERE status = 'pending'
+                ORDER BY created_at DESC, id DESC
+                '''
+            )
+            pending_rows = cursor.fetchall() or []
+
+        return jsonify({
+            'code': 200,
+            'approved': [_serialize_activity_row(row) for row in approved_rows],
+            'submissions': [_serialize_activity_row(row) for row in own_rows],
+            'pending_reviews': [_serialize_activity_row(row) for row in pending_rows],
+        })
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/admin/activities', methods=['POST'])
+@admin_required
+def create_activity():
+    _ensure_activities_schema_once()
+    data = request.json or {}
+    role = getattr(g, 'user_role', 'user')
+
+    title = _normalize_text(data.get('title'))
+    if not title:
+        return jsonify({'code': 400, 'msg': '活动名称不能为空'}), 400
+
+    category = _normalize_text(data.get('category'), '日常活动')
+    frequency = _normalize_text(data.get('frequency'), '每日')
+    duration = _normalize_text(data.get('duration'), '10-20 分钟')
+    difficulty = _normalize_text(data.get('difficulty'), '轻松')
+    scene = _normalize_text(data.get('scene'), '校园 / 宿舍 / 日常场景')
+    summary = _normalize_text(data.get('summary'), '管理员新增的日常活动内容。')
+    tagline = _normalize_text(data.get('tagline'), '新增活动内容')
+    description = _normalize_text(data.get('description'), summary)
+    highlights = _normalize_list(data.get('highlights'))
+    steps = _normalize_list(data.get('steps'))
+    tips = _normalize_list(data.get('tips'))
+    cover_image = _normalize_text(data.get('cover_image'))
+    slug = f'activity-{int(time.time() * 1000)}-{secrets.token_hex(3)}'
+    created_by = int((g.user_session or {}).get('user_id') or 0) or None
+    status = 'approved' if role == 'super_admin' else 'pending'
+    is_active = 1 if status == 'approved' else 0
+    reviewed_by = created_by if role == 'super_admin' else None
+    reviewed_at = datetime.now() if role == 'super_admin' else None
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort FROM activities')
+        next_sort = int((cursor.fetchone() or {}).get('next_sort') or 0)
+        cursor.execute(
+            '''
+            INSERT INTO activities (
+              slug, title, category, frequency, duration, difficulty, scene,
+              summary, tagline, description, highlights_json, steps_json, tips_json,
+              cover_image, sort_order, status, is_active, created_by, reviewed_by, reviewed_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''',
+            (
+                slug, title, category, frequency, duration, difficulty, scene,
+                summary, tagline, description,
+                json.dumps(highlights, ensure_ascii=False),
+                json.dumps(steps, ensure_ascii=False),
+                json.dumps(tips, ensure_ascii=False),
+                cover_image, next_sort, status, is_active, created_by, reviewed_by, reviewed_at
+            )
+        )
+        activity_id = cursor.lastrowid
+        conn.commit()
+
+        cursor.execute(
+            '''
+            SELECT id, slug, title, category, frequency, duration, difficulty, scene,
+                   summary, tagline, description, highlights_json, steps_json, tips_json,
+                   cover_image, status, created_by, reviewed_by, reviewed_at, created_at, updated_at
+            FROM activities
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (activity_id,)
+        )
+        row = cursor.fetchone() or {}
+        msg = '活动已发布' if status == 'approved' else '活动已提交，等待主席审批'
+        return jsonify({'code': 200, 'msg': msg, 'data': _serialize_activity_row(row)})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/admin/activities/<int:activity_id>/approve', methods=['POST'])
+@super_admin_required
+def approve_activity(activity_id):
+    _ensure_activities_schema_once()
+    reviewer_id = int((g.user_session or {}).get('user_id') or 0) or None
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            UPDATE activities
+            SET status = 'approved', is_active = 1, reviewed_by = %s, reviewed_at = NOW()
+            WHERE id = %s AND status = 'pending'
+            ''',
+            (reviewer_id, activity_id)
+        )
+        conn.commit()
+        if cursor.rowcount <= 0:
+            return jsonify({'code': 404, 'msg': '待审批活动不存在'}), 404
+        return jsonify({'code': 200, 'msg': '活动已通过审批', 'updated': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/admin/activities/<int:activity_id>/reject', methods=['POST'])
+@super_admin_required
+def reject_activity(activity_id):
+    _ensure_activities_schema_once()
+    reviewer_id = int((g.user_session or {}).get('user_id') or 0) or None
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            UPDATE activities
+            SET status = 'rejected', is_active = 0, reviewed_by = %s, reviewed_at = NOW()
+            WHERE id = %s AND status = 'pending'
+            ''',
+            (reviewer_id, activity_id)
+        )
+        conn.commit()
+        if cursor.rowcount <= 0:
+            return jsonify({'code': 404, 'msg': '待审批活动不存在'}), 404
+        return jsonify({'code': 200, 'msg': '活动已驳回', 'updated': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/admin/activities/<int:activity_id>', methods=['DELETE'])
+@admin_required
+def delete_activity(activity_id):
+    _ensure_activities_schema_once()
+    role = getattr(g, 'user_role', 'user')
+    if role != 'super_admin':
+        return jsonify({'code': 403, 'msg': '只有主席可以删除活动'}), 403
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('DELETE FROM activities WHERE id = %s', (activity_id,))
+        conn.commit()
+        if cursor.rowcount <= 0:
+            return jsonify({'code': 404, 'msg': '活动不存在'}), 404
+        return jsonify({'code': 200, 'msg': '活动已删除', 'deleted': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
+
 # 5. 管理员登录接口
 @app.route('/admin/login', methods=['POST'])
 def admin_login():
@@ -966,9 +1501,12 @@ def admin_login():
     if not user or not _verify_password_and_maybe_upgrade(user, password):
         return jsonify({'code': 401, 'msg': '用户名或密码错误'}), 401
 
-    role = user.get('role', 'user')
-    if role not in ['admin', 'super_admin']:
+    base_role = user.get('role', 'user')
+    if base_role not in ['admin', 'super_admin']:
         return jsonify({'code': 403, 'msg': '需要管理员账号'}), 403
+
+    role_info = _get_role_info(user['id'])
+    role = role_info.get('effective_role') or base_role
 
     session_token = None
     session_expires_at = None
@@ -994,8 +1532,11 @@ def admin_login():
         'student_no': user.get('student_no') or '',
         'phone': user.get('phone') or '',
         'department': user.get('department') or '',
+        'base_role': role_info.get('base_role') or base_role,
         'is_admin': True,
         'is_super_admin': role == 'super_admin',
+        'is_temporary_super_admin': bool(role_info.get('is_temporary_super_admin')),
+        'grant_expires_at': role_info.get('grant_expires_at').strftime('%Y-%m-%d %H:%M:%S') if role_info.get('grant_expires_at') else None,
         'role': role,
         'session_token': session_token,
         'session_expires_at': session_expires_at.strftime('%Y-%m-%d %H:%M:%S') if session_expires_at else None,
@@ -1043,9 +1584,21 @@ def get_all_records():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT pr.id, pr.user_id, u.username, pr.punch_time, pr.approved, pr.is_urge
+        SELECT
+            pr.id,
+            pr.user_id,
+            u.username,
+            u.student_no,
+            u.department,
+            pr.punch_time,
+            pr.approved,
+            pr.is_urge,
+            pr.approved_by,
+            pr.approved_at,
+            approver.username AS approved_by_username
         FROM punch_records pr
         JOIN users u ON pr.user_id = u.id
+        LEFT JOIN users approver ON approver.id = pr.approved_by
         ORDER BY pr.punch_time DESC
     ''')
     records = cursor.fetchall()
@@ -1255,6 +1808,7 @@ def admin_get_punch_approvals():
 def admin_approve_punch_records():
     _ensure_punch_records_schema_once()
     _ensure_schema_once()
+    approver_id = int((g.user_session or {}).get('user_id') or 0) or None
 
     data = request.json or {}
     record_ids = data.get('record_ids') or []
@@ -1275,10 +1829,10 @@ def admin_approve_punch_records():
             cursor.execute(
                 f'''
                 UPDATE punch_records
-                SET approved = 1, is_urge = 0
+                SET approved = 1, is_urge = 0, approved_by = %s, approved_at = NOW()
                 WHERE id IN ({placeholders}) AND approved = 0
                 ''',
-                tuple(punch_ids)
+                (approver_id, *tuple(punch_ids))
             )
             updated += cursor.rowcount
 
@@ -1320,6 +1874,7 @@ def admin_approve_punch_records():
 def admin_reject_punch_records():
     _ensure_punch_records_schema_once()
     _ensure_schema_once()
+    approver_id = int((g.user_session or {}).get('user_id') or 0) or None
 
     data = request.json or {}
     record_ids = data.get('record_ids') or []
@@ -1340,10 +1895,10 @@ def admin_reject_punch_records():
             cursor.execute(
                 f'''
                 UPDATE punch_records
-                SET approved = -1, is_urge = 0
+                SET approved = -1, is_urge = 0, approved_by = %s, approved_at = NOW()
                 WHERE id IN ({placeholders}) AND approved = 0
                 ''',
-                tuple(punch_ids)
+                (approver_id, *tuple(punch_ids))
             )
             updated += cursor.rowcount
 
@@ -1501,6 +2056,654 @@ def approve_admin():
         if 'conn' in locals():
             conn.close()
 
+@app.route('/delegation-applications', methods=['POST'])
+@admin_required
+def create_delegation_application():
+    _ensure_schema_once()
+    if getattr(g, 'base_user_role', None) != 'admin':
+        return jsonify({'code': 403, 'msg': '只有部长可以申请放权'}), 403
+
+    data = request.json or {}
+    reason = _normalize_text(data.get('reason'))
+    user_id = int((g.user_session or {}).get('user_id') or 0)
+    username = _normalize_text(data.get('username'))
+
+    if not reason:
+        return jsonify({'code': 400, 'msg': '请填写申请理由'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT username FROM users WHERE id = %s LIMIT 1', (user_id,))
+        user_row = cursor.fetchone() or {}
+        username = username or user_row.get('username') or ''
+
+        cursor.execute(
+            '''
+            SELECT id
+            FROM delegation_applications
+            WHERE user_id = %s AND status = 'pending'
+            ORDER BY id DESC
+            LIMIT 1
+            ''',
+            (user_id,)
+        )
+        if cursor.fetchone():
+            return jsonify({'code': 400, 'msg': '您已有待处理的放权申请，请等待审批'}), 400
+
+        cursor.execute(
+            '''
+            SELECT id
+            FROM temporary_super_admin_grants
+            WHERE user_id = %s
+              AND revoked_at IS NULL
+              AND starts_at <= NOW()
+              AND expires_at > NOW()
+            ORDER BY id DESC
+            LIMIT 1
+            ''',
+            (user_id,)
+        )
+        if cursor.fetchone():
+            return jsonify({'code': 400, 'msg': '您当前已处于放权状态，无需重复申请'}), 400
+
+        cursor.execute(
+            '''
+            INSERT INTO delegation_applications (user_id, username, reason)
+            VALUES (%s, %s, %s)
+            ''',
+            (user_id, username, reason)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '放权申请已提交，请等待主席处理'})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/delegation-applications/mine', methods=['GET'])
+@admin_required
+def get_my_delegation_applications():
+    _ensure_schema_once()
+    if getattr(g, 'base_user_role', None) != 'admin':
+        return jsonify({'code': 403, 'msg': '只有部长可以查看放权申请'}), 403
+
+    user_id = int((g.user_session or {}).get('user_id') or 0)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT
+                da.id,
+                da.user_id,
+                da.username,
+                da.reason,
+                da.status,
+                da.is_urge,
+                da.reviewed_by,
+                reviewer.username AS reviewed_by_username,
+                da.reviewed_at,
+                da.grant_id,
+                da.created_at,
+                da.updated_at,
+                g.starts_at,
+                g.expires_at,
+                g.revoked_at
+            FROM delegation_applications da
+            LEFT JOIN users reviewer ON reviewer.id = da.reviewed_by
+            LEFT JOIN temporary_super_admin_grants g ON g.id = da.grant_id
+            WHERE da.user_id = %s
+            ORDER BY da.created_at DESC, da.id DESC
+            ''',
+            (user_id,)
+        )
+        return jsonify({'code': 200, 'data': cursor.fetchall() or []})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/delegation-applications/<int:application_id>/urge', methods=['POST'])
+@admin_required
+def urge_delegation_application(application_id):
+    _ensure_schema_once()
+    if getattr(g, 'base_user_role', None) != 'admin':
+        return jsonify({'code': 403, 'msg': '只有部长可以催办放权申请'}), 403
+
+    user_id = int((g.user_session or {}).get('user_id') or 0)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, user_id, status, is_urge
+            FROM delegation_applications
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (application_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'code': 404, 'msg': '放权申请不存在'}), 404
+        if int(row.get('user_id') or 0) != user_id:
+            return jsonify({'code': 403, 'msg': '无权限操作该申请'}), 403
+        if row.get('status') != 'pending':
+            return jsonify({'code': 400, 'msg': '该申请已处理，无法催办'}), 400
+        if int(row.get('is_urge') or 0) == 1:
+            return jsonify({'code': 200, 'msg': '已催办', 'updated': 0})
+
+        cursor.execute(
+            'UPDATE delegation_applications SET is_urge = 1 WHERE id = %s AND status = %s',
+            (application_id, 'pending')
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '催办成功', 'updated': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/delegation-applications', methods=['GET'])
+@super_admin_required
+def get_super_admin_delegation_applications():
+    _ensure_schema_once()
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可查看放权申请'}), 403
+
+    status = _normalize_text(request.args.get('status'), 'all')
+    allowed = {'all', 'pending', 'approved', 'rejected'}
+    if status not in allowed:
+        status = 'all'
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        sql = '''
+            SELECT
+                da.id,
+                da.user_id,
+                da.username,
+                u.nickname,
+                u.department,
+                u.student_no,
+                da.reason,
+                da.status,
+                da.is_urge,
+                da.reviewed_by,
+                reviewer.username AS reviewed_by_username,
+                da.reviewed_at,
+                da.grant_id,
+                da.created_at,
+                da.updated_at,
+                g.starts_at,
+                g.expires_at,
+                g.revoked_at
+            FROM delegation_applications da
+            JOIN users u ON u.id = da.user_id
+            LEFT JOIN users reviewer ON reviewer.id = da.reviewed_by
+            LEFT JOIN temporary_super_admin_grants g ON g.id = da.grant_id
+        '''
+        params = []
+        if status != 'all':
+            sql += ' WHERE da.status = %s'
+            params.append(status)
+        sql += ' ORDER BY CASE WHEN da.status = "pending" THEN 0 ELSE 1 END, da.created_at DESC, da.id DESC'
+        cursor.execute(sql, params)
+        return jsonify({'code': 200, 'data': cursor.fetchall() or []})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/delegation-applications/<int:application_id>/approve', methods=['POST'])
+@super_admin_required
+def approve_delegation_application(application_id):
+    _ensure_schema_once()
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可处理放权申请'}), 403
+
+    data = request.json or {}
+    duration_hours = int(data.get('duration_hours') or 24)
+    reviewer_id = int((g.user_session or {}).get('user_id') or 0)
+    if duration_hours < 1 or duration_hours > 720:
+        return jsonify({'code': 400, 'msg': '时长需在 1 到 720 小时之间'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, user_id, username, status
+            FROM delegation_applications
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (application_id,)
+        )
+        application = cursor.fetchone()
+        if not application:
+            return jsonify({'code': 404, 'msg': '放权申请不存在'}), 404
+        if application.get('status') != 'pending':
+            return jsonify({'code': 400, 'msg': '该放权申请已处理'}), 400
+
+        cursor.execute(
+            '''
+            SELECT id
+            FROM temporary_super_admin_grants
+            WHERE user_id = %s
+              AND revoked_at IS NULL
+              AND starts_at <= NOW()
+              AND expires_at > NOW()
+            ORDER BY id DESC
+            LIMIT 1
+            ''',
+            (application.get('user_id'),)
+        )
+        if cursor.fetchone():
+            return jsonify({'code': 400, 'msg': '该部长当前已处于放权状态'}), 400
+
+        cursor.execute(
+            '''
+            INSERT INTO temporary_super_admin_grants (
+                user_id, granted_by, duration_hours, starts_at, expires_at
+            ) VALUES (%s, %s, %s, NOW(), DATE_ADD(NOW(), INTERVAL %s HOUR))
+            ''',
+            (application.get('user_id'), reviewer_id, duration_hours, duration_hours)
+        )
+        grant_id = cursor.lastrowid
+
+        cursor.execute(
+            '''
+            UPDATE delegation_applications
+            SET status = 'approved',
+                is_urge = 0,
+                reviewed_by = %s,
+                reviewed_at = NOW(),
+                grant_id = %s
+            WHERE id = %s
+            ''',
+            (reviewer_id, grant_id, application_id)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': f'已批准 {application.get("username") or "该部长"} 的放权申请'})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/delegation-applications/<int:application_id>/reject', methods=['POST'])
+@super_admin_required
+def reject_delegation_application(application_id):
+    _ensure_schema_once()
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可处理放权申请'}), 403
+
+    reviewer_id = int((g.user_session or {}).get('user_id') or 0)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, username, status
+            FROM delegation_applications
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (application_id,)
+        )
+        application = cursor.fetchone()
+        if not application:
+            return jsonify({'code': 404, 'msg': '放权申请不存在'}), 404
+        if application.get('status') != 'pending':
+            return jsonify({'code': 400, 'msg': '该放权申请已处理'}), 400
+
+        cursor.execute(
+            '''
+            UPDATE delegation_applications
+            SET status = 'rejected',
+                is_urge = 0,
+                reviewed_by = %s,
+                reviewed_at = NOW()
+            WHERE id = %s
+            ''',
+            (reviewer_id, application_id)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': f'已驳回 {application.get("username") or "该部长"} 的放权申请'})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/admin/messages', methods=['GET'])
+@admin_required
+def get_admin_messages():
+    _ensure_schema_once()
+    _ensure_activities_schema_once()
+    current_user_id = int((g.user_session or {}).get('user_id') or 0)
+    base_role = getattr(g, 'base_user_role', None) or getattr(g, 'user_role', 'user')
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        items = []
+        if base_role == 'super_admin':
+            cursor.execute(
+                '''
+                SELECT a.id, a.title, a.summary, a.status, a.created_at, a.updated_at, u.username
+                FROM activities a
+                LEFT JOIN users u ON u.id = a.created_by
+                WHERE a.status = 'pending'
+                ORDER BY a.created_at DESC, a.id DESC
+                LIMIT 30
+                '''
+            )
+            for row in cursor.fetchall() or []:
+                items.append({
+                    'id': f"activity:{row.get('id')}",
+                    'raw_id': row.get('id'),
+                    'item_type': 'activity_review',
+                    'title': row.get('title') or '活动申请',
+                    'subtitle': row.get('username') or '-',
+                    'detail': row.get('summary') or '管理员提交了新的活动草稿',
+                    'status': row.get('status') or 'pending',
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('updated_at'),
+                    'can_open': True,
+                    'can_urge': False,
+                    'target_view': 'activity'
+                })
+
+            cursor.execute(
+                '''
+                SELECT id, user_id, username, reason, status, is_urge, created_at, updated_at
+                FROM delegation_applications
+                WHERE status = 'pending'
+                ORDER BY created_at DESC, id DESC
+                LIMIT 30
+                '''
+            )
+            for row in cursor.fetchall() or []:
+                items.append({
+                    'id': f"delegation:{row.get('id')}",
+                    'raw_id': row.get('id'),
+                    'item_type': 'delegation_review',
+                    'title': f"{row.get('username') or '部长'} 的放权申请",
+                    'subtitle': f"用户 ID {row.get('user_id')}",
+                    'detail': row.get('reason') or '申请临时主席权限',
+                    'status': row.get('status') or 'pending',
+                    'is_urge': int(row.get('is_urge') or 0),
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('updated_at'),
+                    'can_open': True,
+                    'can_urge': False,
+                    'target_view': 'delegation'
+                })
+        else:
+            cursor.execute(
+                '''
+                SELECT id, title, summary, status, created_at, updated_at
+                FROM activities
+                WHERE created_by = %s
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 30
+                ''',
+                (current_user_id,)
+            )
+            for row in cursor.fetchall() or []:
+                items.append({
+                    'id': f"activity:{row.get('id')}",
+                    'raw_id': row.get('id'),
+                    'item_type': 'activity_submission',
+                    'title': row.get('title') or '活动申请',
+                    'subtitle': '活动投稿',
+                    'detail': row.get('summary') or '已提交到主席审批',
+                    'status': row.get('status') or 'pending',
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('updated_at'),
+                    'can_open': True,
+                    'can_urge': False,
+                    'target_view': 'activity'
+                })
+
+            cursor.execute(
+                '''
+                SELECT
+                    da.id,
+                    da.reason,
+                    da.status,
+                    da.is_urge,
+                    da.created_at,
+                    da.updated_at,
+                    da.reviewed_at,
+                    g.starts_at,
+                    g.expires_at,
+                    g.revoked_at
+                FROM delegation_applications da
+                LEFT JOIN temporary_super_admin_grants g ON g.id = da.grant_id
+                WHERE da.user_id = %s
+                ORDER BY da.updated_at DESC, da.id DESC
+                LIMIT 30
+                ''',
+                (current_user_id,)
+            )
+            for row in cursor.fetchall() or []:
+                detail = row.get('reason') or '申请临时主席权限'
+                if row.get('status') == 'approved' and row.get('expires_at'):
+                    detail = f"已放权至 {row.get('expires_at')}"
+                items.append({
+                    'id': f"delegation:{row.get('id')}",
+                    'raw_id': row.get('id'),
+                    'item_type': 'delegation_application',
+                    'title': '放权申请',
+                    'subtitle': '临时主席权限',
+                    'detail': detail,
+                    'status': row.get('status') or 'pending',
+                    'is_urge': int(row.get('is_urge') or 0),
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('updated_at'),
+                    'can_open': True,
+                    'can_urge': (row.get('status') == 'pending'),
+                    'target_view': 'delegation'
+                })
+
+            cursor.execute(
+                '''
+                SELECT id, duration_hours, starts_at, expires_at, revoked_at, created_at
+                FROM temporary_super_admin_grants
+                WHERE user_id = %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT 10
+                ''',
+                (current_user_id,)
+            )
+            for row in cursor.fetchall() or []:
+                status = 'scheduled'
+                if row.get('revoked_at') is not None:
+                    status = 'revoked'
+                elif row.get('expires_at') and row.get('expires_at') <= datetime.now():
+                    status = 'expired'
+                elif row.get('starts_at') and row.get('starts_at') <= datetime.now():
+                    status = 'approved'
+                items.append({
+                    'id': f"grant:{row.get('id')}",
+                    'raw_id': row.get('id'),
+                    'item_type': 'delegation_grant',
+                    'title': '放权结果',
+                    'subtitle': f"{row.get('duration_hours') or 0} 小时",
+                    'detail': f"{row.get('starts_at')} 至 {row.get('expires_at')}",
+                    'status': status,
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('expires_at') or row.get('created_at'),
+                    'can_open': True,
+                    'can_urge': False,
+                    'target_view': 'delegation'
+                })
+
+        def _item_time_value(item):
+            return item.get('updated_at') or item.get('created_at') or datetime.min
+
+        items.sort(key=_item_time_value, reverse=True)
+        return jsonify({'code': 200, 'data': items[:60]})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/delegations', methods=['GET'])
+@super_admin_required
+def list_super_admin_delegations():
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可管理放权'}), 403
+    _ensure_schema_once()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT
+                g.id,
+                g.user_id,
+                u.username,
+                u.nickname,
+                u.department,
+                g.granted_by,
+                granter.username AS granted_by_username,
+                g.duration_hours,
+                g.starts_at,
+                g.expires_at,
+                g.revoked_at,
+                CASE
+                    WHEN g.revoked_at IS NOT NULL THEN 'revoked'
+                    WHEN g.expires_at <= NOW() THEN 'expired'
+                    WHEN g.starts_at <= NOW() AND g.expires_at > NOW() THEN 'active'
+                    ELSE 'scheduled'
+                END AS status
+            FROM temporary_super_admin_grants g
+            JOIN users u ON u.id = g.user_id
+            JOIN users granter ON granter.id = g.granted_by
+            ORDER BY
+                CASE
+                    WHEN g.revoked_at IS NULL AND g.starts_at <= NOW() AND g.expires_at > NOW() THEN 0
+                    WHEN g.revoked_at IS NULL AND g.expires_at <= NOW() THEN 1
+                    ELSE 2
+                END,
+                g.expires_at DESC,
+                g.id DESC
+            LIMIT 50
+            '''
+        )
+        rows = cursor.fetchall() or []
+        return jsonify({'code': 200, 'data': rows})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/delegations', methods=['POST'])
+@super_admin_required
+def create_super_admin_delegation():
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可管理放权'}), 403
+    _ensure_schema_once()
+    data = request.json or {}
+    target_user_id = int(data.get('target_user_id') or 0)
+    duration_hours = int(data.get('duration_hours') or 0)
+    granted_by = int((g.user_session or {}).get('user_id') or 0)
+
+    if target_user_id <= 0:
+        return jsonify({'code': 400, 'msg': '请选择要放权的管理员'}), 400
+    if duration_hours < 1 or duration_hours > 720:
+        return jsonify({'code': 400, 'msg': '时长需在 1 到 720 小时之间'}), 400
+    if target_user_id == granted_by:
+        return jsonify({'code': 400, 'msg': '不能给自己放权'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT id, username, role FROM users WHERE id = %s', (target_user_id,))
+        target_user = cursor.fetchone()
+        if not target_user:
+            return jsonify({'code': 404, 'msg': '目标管理员不存在'}), 404
+        if (target_user.get('role') or 'user') != 'admin':
+            return jsonify({'code': 400, 'msg': '只能给部长临时授予主席权限'}), 400
+
+        cursor.execute(
+            '''
+            SELECT id
+            FROM temporary_super_admin_grants
+            WHERE user_id = %s
+              AND revoked_at IS NULL
+              AND starts_at <= NOW()
+              AND expires_at > NOW()
+            ORDER BY id DESC
+            LIMIT 1
+            ''',
+            (target_user_id,)
+        )
+        active_grant = cursor.fetchone()
+        if active_grant:
+            return jsonify({'code': 400, 'msg': '该管理员当前已拥有临时主席权限'}), 400
+
+        cursor.execute(
+            '''
+            INSERT INTO temporary_super_admin_grants (
+                user_id, granted_by, duration_hours, starts_at, expires_at
+            ) VALUES (%s, %s, %s, NOW(), DATE_ADD(NOW(), INTERVAL %s HOUR))
+            ''',
+            (target_user_id, granted_by, duration_hours, duration_hours)
+        )
+        delegation_id = cursor.lastrowid
+        conn.commit()
+
+        cursor.execute(
+            '''
+            SELECT id, user_id, duration_hours, starts_at, expires_at
+            FROM temporary_super_admin_grants
+            WHERE id = %s
+            ''',
+            (delegation_id,)
+        )
+        delegation = cursor.fetchone() or {}
+        return jsonify({
+            'code': 200,
+            'msg': f'已向 {target_user.get("username") or "该管理员"} 放权 {duration_hours} 小时',
+            'data': delegation
+        })
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/delegations/<int:delegation_id>/revoke', methods=['POST'])
+@super_admin_required
+def revoke_super_admin_delegation(delegation_id):
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可管理放权'}), 403
+    _ensure_schema_once()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, user_id, revoked_at, expires_at
+            FROM temporary_super_admin_grants
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (delegation_id,)
+        )
+        delegation = cursor.fetchone()
+        if not delegation:
+            return jsonify({'code': 404, 'msg': '放权记录不存在'}), 404
+        if delegation.get('revoked_at') is not None:
+            return jsonify({'code': 400, 'msg': '该放权已撤销'}), 400
+        if delegation.get('expires_at') and delegation.get('expires_at') <= datetime.now():
+            return jsonify({'code': 400, 'msg': '该放权已到期'}), 400
+
+        cursor.execute(
+            'UPDATE temporary_super_admin_grants SET revoked_at = NOW(), expires_at = NOW() WHERE id = %s',
+            (delegation_id,)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '已收回临时主席权限'})
+    finally:
+        cursor.close()
+        conn.close()
+
 # 9. 获取用户角色接口
 @app.route('/user/role/<int:user_id>', methods=['GET'])
 @user_required
@@ -1518,15 +2721,19 @@ def get_user_role(user_id):
     if not user:
         return jsonify({'code': 404, 'msg': '用户不存在'}), 404
 
-    role = user.get('role', 'user')
+    role_info = _get_role_info(user_id)
+    role = role_info.get('effective_role') or user.get('role', 'user')
     is_admin = role in ['admin', 'super_admin']
     is_super_admin = role == 'super_admin'
 
     return jsonify({
         'code': 200, 
+        'base_role': role_info.get('base_role') or user.get('role', 'user'),
         'role': role,
         'is_admin': is_admin,
-        'is_super_admin': is_super_admin
+        'is_super_admin': is_super_admin,
+        'is_temporary_super_admin': bool(role_info.get('is_temporary_super_admin')),
+        'grant_expires_at': role_info.get('grant_expires_at').strftime('%Y-%m-%d %H:%M:%S') if role_info.get('grant_expires_at') else None
     })
 
 @app.route('/user/profile/<int:user_id>', methods=['PUT'])

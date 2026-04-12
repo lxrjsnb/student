@@ -40,10 +40,13 @@
           <span class="actionArrow" aria-hidden="true">›</span>
         </button>
 
-        <button v-if="user?.role === 'super_admin'" class="actionRow" type="button" @click="$emit('goSuperAdmin')">
+        <button v-if="canDelegate" class="actionRow" type="button" @click="$emit('openDelegation')">
           <div class="actionMain">
-            <span class="actionTitle">主席控制台</span>
-            <span class="actionDesc">进入更高权限的管理视图</span>
+            <span class="actionTitle actionTitle--with-dot">
+              {{ delegationLabel }}
+              <span v-if="delegationAlert" class="alertDot" aria-hidden="true"></span>
+            </span>
+            <span class="actionDesc">{{ delegationDesc }}</span>
           </div>
           <span class="actionArrow" aria-hidden="true">›</span>
         </button>
@@ -64,10 +67,11 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  user: { type: Object, default: null }
+  user: { type: Object, default: null },
+  delegationAlert: { type: Boolean, default: false }
 })
 
-defineEmits(['logout', 'goSuperAdmin', 'openSettings'])
+defineEmits(['logout', 'openSettings', 'openDelegation'])
 
 const displayInitial = computed(() => {
   const value = props.user?.nickname || props.user?.username || '?'
@@ -75,11 +79,19 @@ const displayInitial = computed(() => {
 })
 
 const roleText = computed(() => {
+  if (props.user?.isTemporarySuperAdmin && props.user?.baseRole === 'admin') return '部长 · 临时主席'
   if (props.user?.role === 'super_admin') return '主席'
   if (props.user?.role === 'admin') return '部长'
   return '部员'
 })
 
+const canDelegate = computed(() => {
+  if (props.user?.baseRole === 'super_admin') return true
+  if (props.user?.baseRole === 'admin') return !props.user?.isTemporarySuperAdmin
+  return false
+})
+const delegationLabel = computed(() => (props.user?.baseRole === 'super_admin' ? '放权' : '权限申请'))
+const delegationDesc = computed(() => (props.user?.baseRole === 'super_admin' ? '进入独立页面管理临时主席权限' : '填写理由后提交给主席审批'))
 const phoneText = computed(() => props.user?.phone || '-')
 const departmentText = computed(() => props.user?.department || '-')
 const studentNoText = computed(() => props.user?.studentNo || '-')
@@ -242,6 +254,20 @@ const studentNoText = computed(() => props.user?.studentNo || '-')
   font-size: 16px;
   font-weight: 800;
   color: #152131;
+}
+
+.actionTitle--with-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alertDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d83b32;
+  box-shadow: 0 0 0 4px rgba(216, 59, 50, 0.12);
 }
 
 .actionDesc {

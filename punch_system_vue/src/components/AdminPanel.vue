@@ -14,7 +14,7 @@
           ✍️ 审批申请
         </button>
         <button class="btn btn--ghost" type="button" @click="$emit('goDashboard')">
-          🏠 返回控制台
+          返回审批
         </button>
         <button class="btn btn--ghost" type="button" @click="$emit('logout')">
           退出登录

@@ -215,6 +215,132 @@ export async function getUserRole({ userId, sessionToken }) {
   return res.data
 }
 
+export async function getActivities({ sessionToken }) {
+  const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
+  const res = await api.get('/activities', { headers })
+  return res.data
+}
+
+export async function createActivity({ token, ...payload }) {
+  const res = await adminApi.post('/admin/activities', payload, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function getAdminActivities({ token }) {
+  const res = await adminApi.get('/admin/activities', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function getAdminMessages({ token }) {
+  const res = await adminApi.get('/admin/messages', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function approveActivity({ token, activityId }) {
+  const res = await adminApi.post(`/admin/activities/${activityId}/approve`, null, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function rejectActivity({ token, activityId }) {
+  const res = await adminApi.post(`/admin/activities/${activityId}/reject`, null, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function deleteActivity({ token, activityId }) {
+  const res = await adminApi.delete(`/admin/activities/${activityId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function getSuperAdminDelegations({ token }) {
+  const res = await adminApi.get('/super-admin/delegations', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function createDelegationApplication({ token, reason, username }) {
+  const res = await adminApi.post(
+    '/delegation-applications',
+    { reason, username },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return res.data
+}
+
+export async function getMyDelegationApplications({ token }) {
+  const res = await adminApi.get('/delegation-applications/mine', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
+export async function urgeDelegationApplication({ token, applicationId }) {
+  const res = await adminApi.post(
+    `/delegation-applications/${applicationId}/urge`,
+    null,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return res.data
+}
+
+export async function getSuperAdminDelegationApplications({ token, status } = {}) {
+  const params = {}
+  if (status) params.status = status
+  const res = await adminApi.get('/super-admin/delegation-applications', {
+    headers: { Authorization: `Bearer ${token}` },
+    params
+  })
+  return res.data
+}
+
+export async function approveDelegationApplication({ token, applicationId, durationHours }) {
+  const res = await adminApi.post(
+    `/super-admin/delegation-applications/${applicationId}/approve`,
+    { duration_hours: durationHours },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return res.data
+}
+
+export async function rejectDelegationApplication({ token, applicationId }) {
+  const res = await adminApi.post(
+    `/super-admin/delegation-applications/${applicationId}/reject`,
+    null,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return res.data
+}
+
+export async function createSuperAdminDelegation({ token, targetUserId, durationHours }) {
+  const res = await adminApi.post(
+    '/super-admin/delegations',
+    { target_user_id: targetUserId, duration_hours: durationHours },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return res.data
+}
+
+export async function revokeSuperAdminDelegation({ token, delegationId }) {
+  const res = await adminApi.post(
+    `/super-admin/delegations/${delegationId}/revoke`,
+    null,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return res.data
+}
+
 export async function updateUsername({ userId, password, username, sessionToken }) {
   const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
   const res = await api.put(`/user/profile/${userId}`, { password, username }, { headers })

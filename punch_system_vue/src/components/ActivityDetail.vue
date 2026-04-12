@@ -83,6 +83,13 @@ const props = defineProps({
 defineEmits(['back'])
 
 const heroStyle = computed(() => {
+  if (props.activity?.coverImage) {
+    return {
+      backgroundImage: `linear-gradient(180deg, rgba(7, 13, 22, 0.04), rgba(7, 13, 22, 0.22)), url(${props.activity.coverImage})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    }
+  }
   const palettes = {
     '运动激活': ['#6d8b74', '#9dc4a8'],
     '身体舒展': ['#688580', '#a5c1bc'],

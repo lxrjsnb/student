@@ -1,7 +1,31 @@
+import ast
+import json
+import re
+from pathlib import Path
+
 from db_env import get_db_connection, get_db_name, get_server_connection
 
 
 DB_NAME = get_db_name()
+
+def load_default_activities_seed():
+    seed_path = Path(__file__).resolve().parents[1] / 'punch_system_vue' / 'src' / 'lib' / 'activities.js'
+    if not seed_path.exists():
+        return []
+
+    text = seed_path.read_text(encoding='utf-8')
+    start = text.find('[')
+    end = text.rfind(']')
+    if start < 0 or end < 0 or end <= start:
+        return []
+
+    body = text[start:end + 1]
+    body = re.sub(r'(\b[A-Za-z_][A-Za-z0-9_]*\b)\s*:', r'"\1":', body)
+    try:
+        parsed = ast.literal_eval(body)
+    except Exception:
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def ensure_database_exists():
@@ -140,6 +164,92 @@ def setup_database():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ''')
         print("✓ phone_change_requests 表创建成功")
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS activities (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                slug VARCHAR(128) NOT NULL,
+                title VARCHAR(120) NOT NULL,
+                category VARCHAR(64) NOT NULL DEFAULT '',
+                frequency VARCHAR(64) NOT NULL DEFAULT '',
+                duration VARCHAR(64) NOT NULL DEFAULT '',
+                difficulty VARCHAR(32) NOT NULL DEFAULT '',
+                scene VARCHAR(128) NOT NULL DEFAULT '',
+                summary TEXT,
+                tagline VARCHAR(255) NOT NULL DEFAULT '',
+                description TEXT,
+                highlights_json LONGTEXT,
+                steps_json LONGTEXT,
+                tips_json LONGTEXT,
+                cover_image LONGTEXT,
+                sort_order INT NOT NULL DEFAULT 0,
+                status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved',
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_by INT NULL DEFAULT NULL,
+                reviewed_by INT NULL DEFAULT NULL,
+                reviewed_at DATETIME NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_slug (slug),
+                KEY idx_active_sort (is_active, sort_order, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
+        print("✓ activities 表创建成功")
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS temporary_super_admin_grants (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                granted_by INT NOT NULL,
+                duration_hours INT NOT NULL DEFAULT 24,
+                starts_at DATETIME NOT NULL,
+                expires_at DATETIME NOT NULL,
+                revoked_at DATETIME NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_user_expires (user_id, expires_at),
+                KEY idx_granted_by (granted_by),
+                KEY idx_active_window (starts_at, expires_at, revoked_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
+        print("✓ temporary_super_admin_grants 表创建成功")
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS delegation_applications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                username VARCHAR(50) NOT NULL,
+                reason TEXT NOT NULL,
+                status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+                is_urge TINYINT(1) NOT NULL DEFAULT 0,
+                reviewed_by INT NULL DEFAULT NULL,
+                reviewed_at DATETIME NULL DEFAULT NULL,
+                grant_id INT NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                KEY idx_user_status (user_id, status),
+                KEY idx_status_created (status, created_at),
+                KEY idx_reviewed_by (reviewed_by)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
+        print("✓ delegation_applications 表创建成功")
+
+        if not table_column_exists('activities', 'status'):
+            cursor.execute("ALTER TABLE activities ADD COLUMN status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved' AFTER sort_order")
+            print("✓ activities 表添加 status 字段成功")
+        else:
+            print("✓ activities 表已有 status 字段")
+
+        if not table_column_exists('activities', 'reviewed_by'):
+            cursor.execute("ALTER TABLE activities ADD COLUMN reviewed_by INT NULL DEFAULT NULL AFTER created_by")
+            print("✓ activities 表添加 reviewed_by 字段成功")
+        else:
+            print("✓ activities 表已有 reviewed_by 字段")
+
+        if not table_column_exists('activities', 'reviewed_at'):
+            cursor.execute("ALTER TABLE activities ADD COLUMN reviewed_at DATETIME NULL DEFAULT NULL AFTER reviewed_by")
+            print("✓ activities 表添加 reviewed_at 字段成功")
+        else:
+            print("✓ activities 表已有 reviewed_at 字段")
         
         # 3. 检查并添加 role 字段到 users 表
         cursor.execute('''
@@ -261,6 +371,46 @@ def setup_database():
         except Exception as e:
             print(f"⚠ 同步 is_admin 失败: {e}")
 
+        try:
+            cursor.execute('SELECT COUNT(*) AS total FROM activities')
+            total = int((cursor.fetchone() or {}).get('total') or 0)
+            if total == 0:
+                defaults = load_default_activities_seed()
+                inserted = 0
+                for index, item in enumerate(defaults):
+                    cursor.execute(
+                        '''
+                        INSERT IGNORE INTO activities (
+                            slug, title, category, frequency, duration, difficulty, scene,
+                            summary, tagline, description, highlights_json, steps_json, tips_json,
+                            cover_image, sort_order, status, is_active
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'approved', 1)
+                        ''',
+                        (
+                            item.get('id') or f'activity-{index + 1}',
+                            item.get('title') or '',
+                            item.get('category') or '',
+                            item.get('frequency') or '',
+                            item.get('duration') or '',
+                            item.get('difficulty') or '',
+                            item.get('scene') or '',
+                            item.get('summary') or '',
+                            item.get('tagline') or '',
+                            item.get('description') or '',
+                            json.dumps(item.get('highlights') or [], ensure_ascii=False),
+                            json.dumps(item.get('steps') or [], ensure_ascii=False),
+                            json.dumps(item.get('tips') or [], ensure_ascii=False),
+                            item.get('cover_image') or '',
+                            index,
+                        )
+                    )
+                    inserted += int(cursor.rowcount or 0)
+                print(f"✓ activities 表已写入默认活动 {inserted} 条")
+            else:
+                print("✓ activities 表已有内容")
+        except Exception as e:
+            print(f"⚠ 初始化 activities 数据失败: {e}")
+
         # 4.2 同步 is_online：存在未过期 session 的用户视为在线
         try:
             cursor.execute('UPDATE users SET is_online = 0')
@@ -320,6 +470,14 @@ def setup_database():
         if table_exists('punch_records') and not table_column_exists('punch_records', 'is_urge'):
             cursor.execute('ALTER TABLE punch_records ADD COLUMN is_urge TINYINT(1) NOT NULL DEFAULT 0')
             print("✓ punch_records 表添加 is_urge 字段成功")
+
+        if table_exists('punch_records') and not table_column_exists('punch_records', 'approved_by'):
+            cursor.execute('ALTER TABLE punch_records ADD COLUMN approved_by INT NULL DEFAULT NULL')
+            print("✓ punch_records 表添加 approved_by 字段成功")
+
+        if table_exists('punch_records') and not table_column_exists('punch_records', 'approved_at'):
+            cursor.execute('ALTER TABLE punch_records ADD COLUMN approved_at DATETIME NULL DEFAULT NULL')
+            print("✓ punch_records 表添加 approved_at 字段成功")
 
         # 兼容旧数据：将 NULL 的 score_add 补齐为 0.30
         try:

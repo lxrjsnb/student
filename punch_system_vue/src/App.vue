@@ -24,17 +24,18 @@
         @goHome="goHome"
       />
 
-      <SuperAdminDashboard
-        v-else-if="view === 'superAdminDashboard'"
-        :isSuperAdmin="isSuperAdmin"
+      <SuperAdminStatusView
+        v-else-if="view === 'superAdminStatus' && currentUser"
         :token="adminToken"
         :role="currentUser?.role || 'user'"
-        @logout="adminLogout"
-        @goUsers="goAdminPanel"
-        @goRecords="goAdminPanel"
-        @goOverview="adminGoOverview"
-        @goApprove="goAdminApprove"
-        @goAdmins="goAdminPanel"
+      />
+
+      <SuperAdminDelegationView
+        v-else-if="view === 'superAdminDelegation' && currentUser"
+        :user="currentUser"
+        :token="adminAuthToken"
+        @back="goAdminProfile"
+        @changed="refreshDelegationAlert"
       />
 
       <AdminPanel
@@ -44,7 +45,7 @@
         @logout="adminLogout"
         @goOverview="adminGoOverview"
         @goApprove="goAdminApprove"
-        @goDashboard="goSuperAdminDashboard"
+        @goDashboard="goAdminPunchApproval"
       />
 
       <AdminApply
@@ -60,16 +61,29 @@
         :role="currentUser?.role || 'user'"
       />
 
-      <AdminPunchApproval v-else-if="view === 'adminPunchApproval' && currentUser" :token="adminAuthToken" />
+      <AdminPunchApproval
+        v-else-if="view === 'adminPunchApproval' && currentUser"
+        :token="adminAuthToken"
+        :role="currentUser?.role || 'user'"
+        :base-role="currentUser?.baseRole || currentUser?.role || 'user'"
+        @goActivities="goAdminActivityUpload"
+        @goDelegation="goSuperAdminDelegation"
+      />
 
-      <AdminActivityUpload v-else-if="view === 'adminActivityUpload' && currentUser" />
+      <AdminActivityUpload
+        v-else-if="view === 'adminActivityUpload' && currentUser"
+        :token="adminAuthToken"
+        :role="currentUser?.role || 'user'"
+        @changed="loadActivities"
+      />
 
       <AdminProfile
         v-else-if="view === 'adminProfile' && currentUser"
         :user="currentUser"
+        :delegation-alert="hasActiveDelegationAlert"
         @logout="adminLogout"
-        @goSuperAdmin="goSuperAdminDashboard"
         @openSettings="goSettings"
+        @openDelegation="goSuperAdminDelegation"
       />
 
       <ActivityDetail v-else-if="view === 'activityDetail' && currentUser" :activity="selectedActivity" @back="goActivities" />
@@ -121,7 +135,13 @@
       />
 
       <BottomNav v-if="showMainNav" :current="view" @navigate="navigateMain" />
-      <AdminNav v-if="showAdminNav" :current="view" @navigate="navigateAdmin" />
+      <AdminNav
+        v-if="showAdminNav"
+        :current="view"
+        :role="currentUser?.role || 'user'"
+        :delegation-alert="hasActiveDelegationAlert"
+        @navigate="navigateAdmin"
+      />
 
       <RecordsModal :open="recordsOpen" :records="calendarRecords" :loading="calendarLoading" @close="recordsOpen = false" />
 
@@ -147,7 +167,20 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { API_BASE_URL, adminLogin, login, logout as apiLogout, me, punch, getPunchMessages, getRecords, urgePhoneChangeRequest, urgePunchRecord } from './lib/api'
+import {
+  API_BASE_URL,
+  adminLogin,
+  login,
+  logout as apiLogout,
+  me,
+  punch,
+  getActivities,
+  getPunchMessages,
+  getSuperAdminDelegations,
+  getRecords,
+  urgePhoneChangeRequest,
+  urgePunchRecord
+} from './lib/api'
 import AuthCard from './components/AuthCard.vue'
 import AdminLogin from './components/AdminLogin.vue'
 import AdminPanel from './components/AdminPanel.vue'
@@ -157,7 +190,8 @@ import AdminApprove from './components/AdminApprove.vue'
 import AdminPunchApproval from './components/AdminPunchApproval.vue'
 import AdminActivityUpload from './components/AdminActivityUpload.vue'
 import AdminProfile from './components/AdminProfile.vue'
-import SuperAdminDashboard from './components/SuperAdminDashboard.vue'
+import SuperAdminDelegationView from './components/SuperAdminDelegationView.vue'
+import SuperAdminStatusView from './components/SuperAdminStatusView.vue'
 import PunchHome from './components/PunchHome.vue'
 import BottomNav from './components/BottomNav.vue'
 import AdminNav from './components/AdminNav.vue'
@@ -168,7 +202,6 @@ import ActivitiesList from './components/ActivitiesList.vue'
 import ActivityDetail from './components/ActivityDetail.vue'
 import ProfileView from './components/ProfileView.vue'
 import SettingsView from './components/SettingsView.vue'
-import { ACTIVITIES } from './lib/activities'
 import { getNextQuote } from './lib/quotes'
 
 const STORAGE_KEY_USER = 'punch_user'
@@ -201,6 +234,7 @@ const recordsOpen = ref(false)
 const pendingApproval = ref(false)
 const pendingApprovalLatest = ref('')
 const pendingCount = ref(0)
+const hasActiveDelegationAlert = ref(false)
 
 const messagesOpen = ref(false)
 const messagesLoading = ref(false)
@@ -211,14 +245,14 @@ const messagesTipType = ref('info')
 const successOpen = ref(false)
 const successQuote = ref({ text: '', from: '' })
 
-const activities = ref(ACTIVITIES)
+const activities = ref([])
 const selectedActivityId = ref('')
 const selectedActivity = computed(() => activities.value.find((a) => a.id === selectedActivityId.value) || null)
 
 const showMainNav = computed(() => {
   if (!currentUser.value) return false
   if (isAdmin.value) return false
-  if (view.value === 'adminLogin' || view.value === 'adminPanel' || view.value === 'superAdminDashboard') return false
+  if (view.value === 'adminLogin' || view.value === 'adminPanel') return false
   if (view.value === 'adminApprove' || view.value === 'adminApply') return false
   return ['home', 'activities', 'profile'].includes(view.value)
 })
@@ -227,7 +261,7 @@ const showAdminNav = computed(() => {
   if (!currentUser.value) return false
   if (!isAdmin.value) return false
   if (view.value === 'adminLogin') return false
-  return ['adminPunchApproval', 'adminActivityUpload', 'adminProfile'].includes(view.value)
+  return ['adminPunchApproval', 'adminActivityUpload', 'adminProfile', 'superAdminStatus'].includes(view.value)
 })
 
 const hasBottomNav = computed(() => showMainNav.value || showAdminNav.value)
@@ -293,6 +327,39 @@ function formatDateTime(timeStr) {
     second: '2-digit',
     hour12: false
   })
+}
+
+function normalizeActivity(item) {
+  return {
+    id: item?.id || item?.slug || '',
+    dbId: item?.db_id || item?.dbId || null,
+    title: item?.title || '',
+    category: item?.category || '日常活动',
+    frequency: item?.frequency || '每日',
+    duration: item?.duration || '10-20 分钟',
+    difficulty: item?.difficulty || '轻松',
+    scene: item?.scene || '校园 / 宿舍 / 日常场景',
+    summary: item?.summary || '',
+    tagline: item?.tagline || '',
+    description: item?.description || item?.summary || '',
+    highlights: Array.isArray(item?.highlights) ? item.highlights : [],
+    steps: Array.isArray(item?.steps) ? item.steps : [],
+    tips: Array.isArray(item?.tips) ? item.tips : [],
+    coverImage: item?.cover_image || item?.coverImage || ''
+  }
+}
+
+async function loadActivities() {
+  const sessionToken = currentUser.value?.sessionToken || adminAuthToken.value
+  if (!sessionToken) return
+  try {
+    const data = await getActivities({ sessionToken })
+    if (data.code === 200) {
+      activities.value = (data.data || []).map(normalizeActivity)
+    }
+  } catch (err) {
+    console.error('加载活动失败:', err)
+  }
 }
 
 function loadUserFromStorage() {
@@ -394,6 +461,19 @@ function applyUserPatch(patch) {
   if (stored) localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(currentUser.value))
 }
 
+async function refreshDelegationAlert() {
+  if (currentUser.value?.baseRole !== 'super_admin' || !adminAuthToken.value) {
+    hasActiveDelegationAlert.value = false
+    return
+  }
+  try {
+    const data = await getSuperAdminDelegations({ token: adminAuthToken.value })
+    hasActiveDelegationAlert.value = data.code === 200 && (data.data || []).some((item) => item.status === 'active')
+  } catch {
+    hasActiveDelegationAlert.value = false
+  }
+}
+
 function logout() {
   if (currentUser.value?.sessionToken) {
     apiLogout({ sessionToken: currentUser.value.sessionToken }).catch(() => {})
@@ -401,6 +481,7 @@ function logout() {
   currentUser.value = null
   view.value = 'home'
   records.value = []
+  activities.value = []
   recordsLoaded.value = false
   calendarRecords.value = []
   calendarLoading.value = false
@@ -408,6 +489,7 @@ function logout() {
   pendingApproval.value = false
   pendingApprovalLatest.value = ''
   pendingCount.value = 0
+  hasActiveDelegationAlert.value = false
   lastPunchTime.value = null
   cooldownRemaining.value = 0
   localStorage.removeItem(STORAGE_KEY_USER)
@@ -434,6 +516,7 @@ function goAdminProfile() {
 function navigateAdmin(target) {
   if (target === 'adminPunchApproval') goAdminPunchApproval()
   if (target === 'adminActivityUpload') goAdminActivityUpload()
+  if (target === 'superAdminStatus') goSuperAdminStatus()
   if (target === 'adminProfile') goAdminProfile()
 }
 
@@ -480,6 +563,9 @@ async function handleAuth(payload) {
         studentNo: data.student_no || '',
         phone: data.phone || '',
         department: data.department || '',
+        baseRole: data.base_role || data.role,
+        isTemporarySuperAdmin: Boolean(data.is_temporary_super_admin),
+        grantExpiresAt: data.grant_expires_at || '',
         role: data.role,
         sessionToken: data.session_token || '',
         _expiresAt: data.session_expires_at ? new Date(data.session_expires_at).getTime() : Date.now() + LOGIN_TTL_MS
@@ -493,6 +579,12 @@ async function handleAuth(payload) {
       } catch (err) {
         console.error('刷新记录失败:', err)
       }
+      try {
+        await loadActivities()
+      } catch (err) {
+        console.error('刷新活动失败:', err)
+      }
+      refreshDelegationAlert().catch(() => {})
       return
     }
     authMessage.value = data.msg || '登录失败。'
@@ -707,6 +799,9 @@ async function handleAdminLogin(payload) {
         studentNo: data.student_no || '',
         phone: data.phone || '',
         department: data.department || '',
+        baseRole: data.base_role || data.role,
+        isTemporarySuperAdmin: Boolean(data.is_temporary_super_admin),
+        grantExpiresAt: data.grant_expires_at || '',
         role: data.role,
         sessionToken: data.session_token || '',
         _expiresAt: data.session_expires_at ? new Date(data.session_expires_at).getTime() : Date.now() + LOGIN_TTL_MS
@@ -715,6 +810,8 @@ async function handleAdminLogin(payload) {
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user))
       setInitialViewForRole(data.role)
       adminMessage.value = ''
+      await loadActivities()
+      refreshDelegationAlert().catch(() => {})
       return
     }
     adminMessage.value = data.msg || '管理员账号或密码错误。'
@@ -734,8 +831,10 @@ function adminLogout() {
   adminToken.value = ''
   currentUser.value = null
   view.value = 'home'
+  activities.value = []
   calendarRecords.value = []
   calendarLoading.value = false
+  hasActiveDelegationAlert.value = false
   localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
   localStorage.removeItem(STORAGE_KEY_USER)
 }
@@ -755,8 +854,12 @@ function goAdminPanel() {
   view.value = 'adminPanel'
 }
 
-function goSuperAdminDashboard() {
-  view.value = 'superAdminDashboard'
+function goSuperAdminStatus() {
+  view.value = 'superAdminStatus'
+}
+
+function goSuperAdminDelegation() {
+  view.value = 'superAdminDelegation'
 }
 
 function goAdminApply() {
@@ -772,6 +875,7 @@ let timer = null
 let cooldownTimer = null
 let pendingPollTimer = null
 let reloginListener = null
+let roleSyncTimer = null
 
 onMounted(() => {
   reloginListener = (event) => {
@@ -799,8 +903,32 @@ onMounted(() => {
     if (recordsLoading.value) return
     refreshRecords({ silent: true }).catch(() => {})
   }, 15000)
+
+  roleSyncTimer = setInterval(() => {
+    if (!currentUser.value?.sessionToken) return
+    me({ sessionToken: currentUser.value.sessionToken })
+      .then((data) => {
+        if (data.code === 200) {
+          applyUserPatch({
+            nickname: data.nickname || data.username,
+            username: data.username,
+            studentNo: data.student_no || '',
+            phone: data.phone || '',
+            department: data.department || '',
+            baseRole: data.base_role || data.role,
+            isTemporarySuperAdmin: Boolean(data.is_temporary_super_admin),
+            grantExpiresAt: data.grant_expires_at || '',
+            role: data.role
+          })
+          refreshDelegationAlert().catch(() => {})
+        }
+      })
+      .catch(() => {})
+  }, 30000)
   
   if (currentUser.value?.id) refreshRecords()
+  if (currentUser.value?.sessionToken) loadActivities()
+  refreshDelegationAlert().catch(() => {})
   if (currentUser.value?.sessionToken) {
     me({ sessionToken: currentUser.value.sessionToken })
       .then((data) => {
@@ -811,8 +939,12 @@ onMounted(() => {
             studentNo: data.student_no || '',
             phone: data.phone || '',
             department: data.department || '',
+            baseRole: data.base_role || data.role,
+            isTemporarySuperAdmin: Boolean(data.is_temporary_super_admin),
+            grantExpiresAt: data.grant_expires_at || '',
             role: data.role
           })
+          refreshDelegationAlert().catch(() => {})
           setInitialViewForRole(data.role)
         } else if (data.code === 401) {
           logout()
@@ -832,6 +964,7 @@ onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (cooldownTimer) clearInterval(cooldownTimer)
   if (pendingPollTimer) clearInterval(pendingPollTimer)
+  if (roleSyncTimer) clearInterval(roleSyncTimer)
   if (reloginListener) window.removeEventListener('auth:relogin-required', reloginListener)
 })
 </script>

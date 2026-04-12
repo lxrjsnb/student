@@ -178,10 +178,17 @@ function onSubmit() {
   min-height: 56px;
   border: 0;
   border-radius: 16px;
-  background: linear-gradient(135deg, #183b4d, #29546c);
-  color: #f8f4ec;
+  background: linear-gradient(135deg, #d9bb87, #b78b4a);
+  color: #fffaf0;
   font-size: 15px;
   font-weight: 800;
+  box-shadow: 0 14px 30px rgba(183, 139, 74, 0.22);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(183, 139, 74, 0.28);
 }
 
 .submit:disabled {

@@ -4,10 +4,14 @@
       <header class="toolbar" role="region" aria-label="审批筛选与操作">
         <div class="toolbar__title">
           <div>
-            <p class="kicker">管理员</p>
-            <h2 class="title">审批</h2>
+            <p class="eyebrow">Approval</p>
+            <h2 class="heroTitle">审批</h2>
           </div>
           <div class="toolbar__titleActions">
+            <button class="quick-btn" type="button" aria-label="消息" title="消息" @click="openMessageCenter">
+              <MessageIcon />
+              <span v-if="hasPendingMessageDot" class="messageBtn__dot" aria-hidden="true"></span>
+            </button>
             <el-button :disabled="loading" @click="resetFilters">重置</el-button>
             <el-button :loading="loading" @click="loadFirstPage">刷新</el-button>
           </div>
@@ -260,16 +264,40 @@
         </div>
       </teleport>
     </transition>
+
+    <AdminMessageCenter
+      :open="messagesOpen"
+      :items="messageItems"
+      :loading="messagesLoading"
+      :message="messagesTip"
+      :message-type="messagesTipType"
+      @close="messagesOpen = false"
+      @open-item="openMessageItem"
+      @urge-item="urgeMessageItem"
+    />
   </section>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { approvePunchRecords, getAllUsers, getPunchApprovals, rejectPunchRecords } from '../lib/api'
+import {
+  approvePunchRecords,
+  getAdminMessages,
+  getAllUsers,
+  getPunchApprovals,
+  rejectPunchRecords,
+  urgeDelegationApplication
+} from '../lib/api'
+import AdminMessageCenter from './AdminMessageCenter.vue'
+import MessageIcon from './MessageIcon.vue'
 
 const props = defineProps({
-  token: { type: String, required: true }
+  token: { type: String, required: true },
+  role: { type: String, default: 'user' },
+  baseRole: { type: String, default: 'user' }
 })
+
+const emit = defineEmits(['goActivities', 'goDelegation'])
 
 const loading = ref(false)
 const approving = ref(false)
@@ -290,6 +318,11 @@ const page = ref(1)
 const pageSize = ref(200)
 const hasMore = ref(false)
 const users = ref([])
+const messagesOpen = ref(false)
+const messagesLoading = ref(false)
+const messageItems = ref([])
+const messagesTip = ref('')
+const messagesTipType = ref('info')
 const tableRef = ref(null)
 const pickerState = ref({
   field: '',
@@ -297,6 +330,10 @@ const pickerState = ref({
   month: '',
   day: '',
 })
+
+const hasPendingMessageDot = computed(() =>
+  (messageItems.value || []).some((item) => String(item?.status || '') === 'pending')
+)
 
 function resetFilters() {
   filters.value = { search: '', userKey: '', startDate: '', endDate: '' }
@@ -595,6 +632,68 @@ function loadFirstPage() {
   load()
 }
 
+async function loadMessageCenter({ open = false } = {}) {
+  if (!props.token) return
+  if (open) messagesOpen.value = true
+  messagesLoading.value = true
+  messagesTip.value = ''
+  try {
+    const data = await getAdminMessages({ token: props.token })
+    if (data.code === 200) {
+      messageItems.value = data.data || []
+    } else {
+      messagesTip.value = data.msg || '加载消息失败'
+      messagesTipType.value = 'error'
+      messageItems.value = []
+    }
+  } catch (err) {
+    messagesTip.value = `加载消息失败：${err?.message || '未知错误'}`
+    messagesTipType.value = 'error'
+    messageItems.value = []
+  } finally {
+    messagesLoading.value = false
+  }
+}
+
+function openMessageCenter() {
+  loadMessageCenter({ open: true })
+}
+
+function openMessageItem(item) {
+  messagesOpen.value = false
+  if (item?.target_view === 'activity') {
+    emit('goActivities')
+    return
+  }
+  if (item?.target_view === 'delegation') {
+    emit('goDelegation')
+  }
+}
+
+async function urgeMessageItem(item) {
+  const rawId = Number(item?.raw_id || 0)
+  if (!rawId) return
+  try {
+    const data = await urgeDelegationApplication({ token: props.token, applicationId: rawId })
+    if (data.code === 200) {
+      messageItems.value = messageItems.value.map((row) =>
+        row.id === item.id ? { ...row, is_urge: 1 } : row
+      )
+      messagesTip.value = data.msg || '催办成功'
+      messagesTipType.value = 'info'
+      setTimeout(() => {
+        if (messagesTipType.value === 'info') messagesTip.value = ''
+      }, 1200)
+      return
+    }
+    messagesTip.value = data.msg || '催办失败'
+    messagesTipType.value = 'error'
+  } catch (err) {
+    messagesTip.value = `催办失败：${err?.message || '未知错误'}`
+    messagesTipType.value = 'error'
+  }
+}
+
 let loadTimer = null
 function scheduleLoad() {
   if (loadTimer) clearTimeout(loadTimer)
@@ -687,6 +786,7 @@ async function loadUsers() {
 
 loadUsers()
 loadFirstPage()
+loadMessageCenter()
 </script>
 
 <style scoped>
@@ -711,29 +811,29 @@ loadFirstPage()
   box-sizing: border-box;
 }
 
-.kicker {
-  margin: 0;
+.eyebrow {
+  margin: 0 0 10px;
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(24, 59, 77, 0.58);
 }
 
-.title {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 1000;
-  letter-spacing: 0.2px;
-  color: rgba(15, 23, 42, 0.9);
+.heroTitle {
+  margin: 0;
+  font-size: clamp(34px, 4vw, 56px);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+  color: #152131;
 }
 
 .toolbar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 5;
-  background: rgba(255, 255, 255, 0.86);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  padding: 14px 16px 12px;
+  background: transparent;
+  border: 0;
+  padding: 32px 18px 0;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -756,8 +856,44 @@ loadFirstPage()
   min-width: 0;
 }
 
+.quick-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: rgba(24, 59, 77, 0.74);
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+
+.quick-btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.8;
+}
+
+.quick-btn :deep(.icon) {
+  width: 20px;
+  height: 20px;
+}
+
+.messageBtn__dot {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #c17d55;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.95);
+}
+
 .toolbar__grid {
-  margin-top: 12px;
+  margin-top: 18px;
   display: grid;
   grid-template-columns: 1.2fr 1fr 1.4fr;
   gap: 10px;
@@ -765,6 +901,11 @@ loadFirstPage()
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+  padding: 18px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  box-shadow: 0 22px 54px rgba(20, 29, 41, 0.08);
 }
 
 .field {
@@ -1064,6 +1205,7 @@ loadFirstPage()
 }
 
 .alert {
+  margin-top: 12px;
   padding: 10px 12px;
   border-radius: 14px;
   font-weight: 900;
@@ -1205,13 +1347,7 @@ loadFirstPage()
   }
 
   .toolbar {
-    position: relative;
-    top: auto;
-    background: transparent;
-    border-bottom: 0;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    padding: 10px 12px 4px;
+    padding: 20px 14px 0;
   }
 
   .toolbar__title,
@@ -1248,11 +1384,9 @@ loadFirstPage()
   }
 
   .toolbar__grid {
-    margin-top: 10px;
-    padding: 12px;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(15, 23, 42, 0.06);
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: 24px;
   }
 
   .left,
@@ -1260,8 +1394,8 @@ loadFirstPage()
     gap: 8px;
   }
 
-  .title {
-    font-size: 16px;
+  .heroTitle {
+    font-size: 32px;
   }
 
   .field :deep(.el-input__wrapper),
@@ -1316,7 +1450,7 @@ loadFirstPage()
     flex: 1 1 0;
   }
 
-  .kicker,
+  .eyebrow,
   .label,
   .muted,
   .chk {

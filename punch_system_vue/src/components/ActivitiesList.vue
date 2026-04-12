@@ -14,6 +14,7 @@
     <div v-if="filteredActivities.length" class="grid">
       <button v-for="(activity, idx) in filteredActivities" :key="activity.id" class="card" type="button" @click="$emit('open', activity.id)">
         <div class="cover" :style="thumbStyle(activity, idx)">
+          <img v-if="activity.coverImage" class="coverImage" :src="activity.coverImage" alt="" />
           <span class="coverTag">{{ activity.category }}</span>
           <div class="coverCopy">
             <p class="coverMeta">{{ activity.frequency }} · {{ activity.duration }}</p>
@@ -170,6 +171,14 @@ function thumbStyle(activity, index) {
   flex-direction: column;
   justify-content: space-between;
   position: relative;
+}
+
+.coverImage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .cover::after {
