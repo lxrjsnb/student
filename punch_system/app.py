@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
-from db_env import get_db_config, load_env_file
+from db_env import get_db_config, get_db_connection as get_pooled_db_connection, load_env_file
 
 load_env_file()
 os.environ.setdefault('FLASK_SKIP_DOTENV', '1')
@@ -92,7 +92,7 @@ class ReLoginRequired(Exception):
     pass
 
 def get_db_connection():
-    return pymysql.connect(**DB_CONFIG)
+    return get_pooled_db_connection()
 
 _schema_checked = False
 _schema_lock = threading.Lock()
@@ -1271,7 +1271,7 @@ def get_activities():
                    cover_image, status, created_by, reviewed_by, reviewed_at, created_at, updated_at
             FROM activities
             WHERE is_active = 1 AND status = 'approved'
-            ORDER BY sort_order ASC, id ASC
+            ORDER BY created_at DESC, id DESC
             '''
         )
         rows = cursor.fetchall() or []
@@ -1297,7 +1297,7 @@ def get_admin_activities():
                    cover_image, status, created_by, reviewed_by, reviewed_at, created_at, updated_at
             FROM activities
             WHERE status = 'approved' AND is_active = 1
-            ORDER BY sort_order ASC, id ASC
+            ORDER BY created_at DESC, id DESC
             '''
         )
         approved_rows = cursor.fetchall() or []
@@ -1380,7 +1380,7 @@ def create_activity():
               slug, title, category, frequency, duration, difficulty, scene,
               summary, tagline, description, highlights_json, steps_json, tips_json,
               cover_image, sort_order, status, is_active, created_by, reviewed_by, reviewed_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''',
             (
                 slug, title, category, frequency, duration, difficulty, scene,

@@ -230,7 +230,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { approveActivity, createActivity, deleteActivity, getAdminActivities, rejectActivity } from '../lib/api'
 
 const props = defineProps({
@@ -247,6 +247,7 @@ const processingId = ref(null)
 const message = ref('')
 const messageType = ref('info')
 const composerOpen = ref(false)
+let messageTimer = null
 
 const approvedActivities = ref([])
 const submissions = ref([])
@@ -271,6 +272,18 @@ const form = reactive({
 const isSuperAdmin = computed(() => props.role === 'super_admin')
 const submitButtonText = computed(() => (isSuperAdmin.value ? '发布活动' : '提交审批'))
 
+function normalizeActivity(item) {
+  return {
+    ...item,
+    id: item?.id || item?.slug || '',
+    dbId: item?.db_id || item?.dbId || null,
+    coverImage: item?.cover_image || item?.coverImage || '',
+    createdAt: item?.created_at || item?.createdAt || '',
+    updatedAt: item?.updated_at || item?.updatedAt || '',
+    reviewedAt: item?.reviewed_at || item?.reviewedAt || ''
+  }
+}
+
 const filteredApproved = computed(() => {
   const q = keyword.value.toLowerCase()
   return approvedActivities.value.filter((item) => {
@@ -284,6 +297,14 @@ const filteredApproved = computed(() => {
 function setMsg(text, type = 'info') {
   message.value = text
   messageType.value = type
+  if (messageTimer) clearTimeout(messageTimer)
+  if (text) {
+    messageTimer = setTimeout(() => {
+      message.value = ''
+      messageType.value = 'info'
+      messageTimer = null
+    }, type === 'error' ? 3200 : 2200)
+  }
 }
 
 function statusText(status) {
@@ -340,9 +361,9 @@ async function loadAdminData() {
   try {
     const data = await getAdminActivities({ token: props.token })
     if (data.code === 200) {
-      approvedActivities.value = data.approved || []
-      submissions.value = data.submissions || []
-      pendingReviews.value = data.pending_reviews || []
+      approvedActivities.value = (data.approved || []).map(normalizeActivity)
+      submissions.value = (data.submissions || []).map(normalizeActivity)
+      pendingReviews.value = (data.pending_reviews || []).map(normalizeActivity)
     }
   } catch (err) {
     setMsg(`加载活动失败：${err?.message || '未知错误'}`, 'error')
@@ -473,6 +494,10 @@ function thumbStyle(activity, index) {
 
 onMounted(() => {
   loadAdminData()
+})
+
+onBeforeUnmount(() => {
+  if (messageTimer) clearTimeout(messageTimer)
 })
 </script>
 

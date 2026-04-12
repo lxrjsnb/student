@@ -1,4 +1,6 @@
 import os
+import queue
+import threading
 from pathlib import Path
 
 import pymysql
@@ -6,6 +8,8 @@ import pymysql
 
 ENV_FILE = Path(__file__).resolve().parent / '.env'
 _ENV_LOADED = False
+_POOL = None
+_POOL_LOCK = threading.Lock()
 
 
 def load_env_file():
@@ -65,8 +69,147 @@ def get_db_config():
     }
 
 
+class _PooledConnection:
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+
+    def close(self):
+        if self._conn is None:
+            return
+        conn = self._conn
+        self._conn = None
+        self._pool.release(conn)
+
+    def __getattr__(self, item):
+        if self._conn is None:
+            raise RuntimeError('database connection has been returned to the pool')
+        return getattr(self._conn, item)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
+class SimpleConnectionPool:
+    def __init__(self, config, max_connections, min_cached, acquire_timeout):
+        self._config = config
+        self._max_connections = max(1, max_connections)
+        self._min_cached = max(0, min(min_cached, self._max_connections))
+        self._acquire_timeout = max(1, acquire_timeout)
+        self._idle_connections = queue.LifoQueue(maxsize=self._max_connections)
+        self._created_connections = 0
+        self._lock = threading.Lock()
+
+        for _ in range(self._min_cached):
+            conn = self._create_raw_connection()
+            self._idle_connections.put_nowait(conn)
+            self._created_connections += 1
+
+    def _create_raw_connection(self):
+        return pymysql.connect(**self._config)
+
+    def _discard_connection(self, conn):
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+        with self._lock:
+            if self._created_connections > 0:
+                self._created_connections -= 1
+
+    def _prepare_connection(self, conn):
+        try:
+            conn.ping(reconnect=True)
+            return conn
+        except Exception:
+            self._discard_connection(conn)
+            return None
+
+    def connection(self):
+        while True:
+            try:
+                conn = self._idle_connections.get_nowait()
+            except queue.Empty:
+                conn = None
+
+            if conn is not None:
+                prepared = self._prepare_connection(conn)
+                if prepared is not None:
+                    return _PooledConnection(self, prepared)
+                continue
+
+            with self._lock:
+                if self._created_connections < self._max_connections:
+                    self._created_connections += 1
+                    should_create = True
+                else:
+                    should_create = False
+
+            if should_create:
+                try:
+                    return _PooledConnection(self, self._create_raw_connection())
+                except Exception:
+                    with self._lock:
+                        self._created_connections -= 1
+                    raise
+
+            try:
+                conn = self._idle_connections.get(timeout=self._acquire_timeout)
+            except queue.Empty as exc:
+                raise RuntimeError(
+                    f'数据库连接池已耗尽，等待 {self._acquire_timeout} 秒仍未获取到连接'
+                ) from exc
+
+            prepared = self._prepare_connection(conn)
+            if prepared is not None:
+                return _PooledConnection(self, prepared)
+
+    def release(self, conn):
+        if conn is None:
+            return
+
+        try:
+            conn.rollback()
+        except Exception:
+            self._discard_connection(conn)
+            return
+
+        try:
+            conn.ping(reconnect=True)
+        except Exception:
+            self._discard_connection(conn)
+            return
+
+        try:
+            self._idle_connections.put_nowait(conn)
+        except queue.Full:
+            self._discard_connection(conn)
+
+
+def get_db_pool():
+    global _POOL
+    if _POOL is not None:
+        return _POOL
+
+    with _POOL_LOCK:
+        if _POOL is not None:
+            return _POOL
+
+        _POOL = SimpleConnectionPool(
+            config=get_db_config(),
+            max_connections=_get_int_env('DB_POOL_MAX_CONNECTIONS', 100),
+            min_cached=_get_int_env('DB_POOL_MIN_CACHED', 3),
+            acquire_timeout=_get_int_env('DB_POOL_ACQUIRE_TIMEOUT', 10),
+        )
+        return _POOL
+
+
 def get_db_connection():
-    return pymysql.connect(**get_db_config())
+    return get_db_pool().connection()
 
 
 def get_server_connection():
