@@ -3,15 +3,10 @@
     <div class="card">
       <div class="head">
         <h2 class="title">
-          <template v-if="mode === 'login'">
-            <span class="title-main">迹刻</span>
-            <span class="title-sub">- 即刻打卡</span>
-          </template>
-          <template v-else>
-            <span class="title-main">注册账号</span>
-          </template>
+          <span class="title-main">迹刻</span>
+          <span class="title-sub">- 即刻打卡</span>
         </h2>
-        <p class="subtitle">{{ mode === 'login' ? '请输入账号和密码继续使用' : '创建一个基础账号后进入系统' }}</p>
+        <p class="subtitle">请输入账号和密码继续使用</p>
       </div>
 
       <form class="form" @submit.prevent="onSubmit">
@@ -27,47 +22,28 @@
           />
         </label>
 
-      <label class="field">
-        <span>密码</span>
-        <input
-          v-model="password"
+        <label class="field">
+          <span>密码</span>
+          <input
+            v-model="password"
             type="password"
-            :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
+            autocomplete="current-password"
             placeholder="请输入密码"
-          :disabled="loading"
-          required
-        />
-      </label>
-
-      <p v-if="inlineLoginError" class="inline-error">{{ inlineLoginError }}</p>
-
-      <label v-if="mode === 'register'" class="field">
-        <span>确认密码</span>
-        <input
-            v-model="confirmPassword"
-            type="password"
-            autocomplete="new-password"
-            placeholder="再次输入密码"
             :disabled="loading"
             required
           />
         </label>
 
-      <button class="submit" type="submit" :disabled="loading">
-        {{ loading ? '处理中...' : mode === 'login' ? '登录' : '注册' }}
-      </button>
+        <p v-if="inlineLoginError" class="inline-error">{{ inlineLoginError }}</p>
 
-      <div v-if="showBottomAlert" class="alert" :class="`alert--${messageType}`">
-        {{ message }}
-      </div>
-    </form>
+        <button class="submit" type="submit" :disabled="loading">
+          {{ loading ? '处理中...' : '登录' }}
+        </button>
 
-      <p class="switch-row">
-        {{ mode === 'login' ? '还没有账号？' : '已有账号？' }}
-        <a href="#" @click.prevent="$emit('switchMode', mode === 'login' ? 'register' : 'login')">
-          {{ mode === 'login' ? '去注册' : '去登录' }}
-        </a>
-      </p>
+        <div v-if="showBottomAlert" class="alert" :class="`alert--${messageType}`">
+          {{ message }}
+        </div>
+      </form>
     </div>
   </section>
 </template>
@@ -76,7 +52,6 @@
 import { computed, ref } from 'vue'
 
 const props = defineProps({
-  mode: { type: String, required: true },
   loading: { type: Boolean, default: false },
   message: { type: String, default: '' },
   messageType: { type: String, default: 'info' },
@@ -84,14 +59,12 @@ const props = defineProps({
   defaultUsername: { type: String, default: '' }
 })
 
-const emit = defineEmits(['auth', 'switchMode', 'goAdmin'])
+const emit = defineEmits(['auth', 'goAdmin'])
 
 const username = ref(props.defaultUsername)
 const password = ref('')
-const confirmPassword = ref('')
 
 const inlineLoginError = computed(() => {
-  if (props.mode !== 'login') return ''
   if (props.messageType !== 'error') return ''
   return '账号或密码错误'
 })
@@ -103,10 +76,8 @@ const showBottomAlert = computed(() => {
 
 function onSubmit() {
   emit('auth', {
-    mode: props.mode,
     username: username.value,
     password: password.value,
-    confirmPassword: confirmPassword.value,
     remember: true
   })
 }
@@ -243,19 +214,6 @@ function onSubmit() {
 .alert--info {
   background: rgba(24, 59, 77, 0.08);
   color: #183b4d;
-}
-
-.switch-row {
-  margin: 18px 0 0;
-  font-size: 14px;
-  color: rgba(24, 33, 47, 0.58);
-}
-
-.switch-row a {
-  color: #183b4d;
-  font-weight: 800;
-  text-decoration: none;
-  margin-left: 6px;
 }
 
 @media (max-width: 640px) {

@@ -1,7 +1,19 @@
 import axios from 'axios'
 
-export const API_BASE_URL =
-  import.meta.env?.VITE_API_BASE_URL?.trim() || 'http://127.0.0.1:5000'
+function resolveApiBaseUrl() {
+  const envBaseUrl = import.meta.env?.VITE_API_BASE_URL?.trim()
+  if (envBaseUrl) return envBaseUrl
+  const port = import.meta.env?.VITE_API_PORT?.trim() || '5001'
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const protocol = window.location.protocol || 'http:'
+    return `${protocol}//${window.location.hostname}:${port}`
+  }
+
+  return `http://127.0.0.1:${port}`
+}
+
+export const API_BASE_URL = resolveApiBaseUrl()
 
 const AUTH_RELOGIN_EVENT = 'auth:relogin-required'
 let reloginTriggered = false
@@ -14,16 +26,18 @@ function _maybeTriggerRelogin(res) {
   const status = res?.status
   const url = res?.config?.url || ''
   const code = res?.data?.code
+  const msg = String(res?.data?.msg || '')
 
   if (_shouldSkip401(url)) return
   if (!(status === 401 || code === 401)) return
+  if (!msg.includes('需要登录') && !msg.includes('重新登录')) return
   if (reloginTriggered) return
   reloginTriggered = true
 
   try {
     window.dispatchEvent(
       new CustomEvent(AUTH_RELOGIN_EVENT, {
-        detail: { msg: res?.data?.msg || '登录已过期，请重新登录' }
+        detail: { msg: msg || '登录已过期，请重新登录' }
       })
     )
   } catch {
@@ -60,11 +74,6 @@ export async function login({ username, password }) {
   return res.data
 }
 
-export async function register({ username, password }) {
-  const res = await api.post('/register', { username, password })
-  return res.data
-}
-
 export async function punch({ userId, sessionToken } = {}) {
   const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
   const res = await api.post('/punch', { user_id: userId }, { headers })
@@ -77,10 +86,11 @@ export async function getRecords({ userId, sessionToken } = {}) {
   return res.data
 }
 
-export async function getPunchMessages({ userId, sessionToken, limit } = {}) {
+export async function getPunchMessages({ userId, sessionToken, limit, includePhone } = {}) {
   const headers = { Authorization: `Bearer ${sessionToken}` }
   const params = {}
   if (limit) params.limit = limit
+  if (includePhone) params.include_phone = 1
   const res = await api.get(`/records/messages/${userId}`, { headers, params })
   return res.data
 }
@@ -88,6 +98,12 @@ export async function getPunchMessages({ userId, sessionToken, limit } = {}) {
 export async function urgePunchRecord({ recordId, sessionToken } = {}) {
   const headers = { Authorization: `Bearer ${sessionToken}` }
   const res = await api.post(`/records/${recordId}/urge`, null, { headers })
+  return res.data
+}
+
+export async function urgePhoneChangeRequest({ requestId, sessionToken } = {}) {
+  const headers = { Authorization: `Bearer ${sessionToken}` }
+  const res = await api.post(`/phone-change-requests/${requestId}/urge`, null, { headers })
   return res.data
 }
 
@@ -173,8 +189,9 @@ export async function deleteRecord({ token, recordId, role }) {
   return res.data
 }
 
-export async function applyForAdmin(data) {
-  const res = await api.post('/admin/apply', data)
+export async function applyForAdmin({ sessionToken, ...data }) {
+  const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
+  const res = await api.post('/admin/apply', data, { headers })
   return res.data
 }
 
@@ -192,17 +209,26 @@ export async function approveAdminApplication({ token, applicationId, action, ro
   return res.data
 }
 
-export async function getUserRole({ userId }) {
-  const res = await api.get(`/user/role/${userId}`)
+export async function getUserRole({ userId, sessionToken }) {
+  const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
+  const res = await api.get(`/user/role/${userId}`, { headers })
   return res.data
 }
 
-export async function updateUsername({ userId, password, username }) {
-  const res = await api.put(`/user/profile/${userId}`, { password, username })
+export async function updateUsername({ userId, password, username, sessionToken }) {
+  const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
+  const res = await api.put(`/user/profile/${userId}`, { password, username }, { headers })
   return res.data
 }
 
-export async function changePassword({ userId, oldPassword, newPassword }) {
-  const res = await api.put(`/user/password/${userId}`, { old_password: oldPassword, new_password: newPassword })
+export async function updatePhone({ userId, password, phone, sessionToken }) {
+  const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
+  const res = await api.put(`/user/phone/${userId}`, { password, phone }, { headers })
+  return res.data
+}
+
+export async function changePassword({ userId, oldPassword, newPassword, sessionToken }) {
+  const headers = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined
+  const res = await api.put(`/user/password/${userId}`, { old_password: oldPassword, new_password: newPassword }, { headers })
   return res.data
 }

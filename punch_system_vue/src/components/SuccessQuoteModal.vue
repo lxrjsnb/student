@@ -134,16 +134,16 @@ defineEmits(['close'])
   border: 0;
   border-radius: 16px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, rgba(0, 168, 204, 0.95), rgba(0, 139, 168, 0.95));
-  color: white;
+  background: linear-gradient(180deg, rgba(214, 177, 120, 0.98), rgba(191, 144, 74, 0.96));
+  color: #fffaf2;
   font-weight: 900;
   font-size: 14px;
-  box-shadow: 0 18px 34px rgba(0, 168, 204, 0.24);
+  box-shadow: 0 18px 34px rgba(183, 139, 74, 0.24);
   transition: transform 0.16s ease, box-shadow 0.16s ease;
 }
 
 .ok:hover {
   transform: translateY(-1px);
-  box-shadow: 0 22px 40px rgba(0, 168, 204, 0.3);
+  box-shadow: 0 22px 40px rgba(183, 139, 74, 0.3);
 }
 </style>

@@ -1,51 +1,90 @@
 <template>
   <section class="page">
     <header class="hero">
-      <div>
-        <p class="eyebrow">Programs</p>
-        <h2 class="title">把活动页做成一个真正可浏览的内容库。</h2>
-        <p class="subtitle">每个活动都应该像一个独立栏目，而不是随手堆出来的列表项。</p>
-      </div>
+      <p class="eyebrow">Daily Library</p>
+      <h2 class="title">日常活动</h2>
     </header>
 
-    <div class="grid">
-      <button v-for="(a, idx) in activities" :key="a.id" class="card" type="button" @click="$emit('open', a.id)">
-        <div class="cover" :style="thumbStyle(idx)">
-          <div class="cover-noise"></div>
-          <span class="badge">{{ a.date }}</span>
-          <div class="cover-copy">
-            <p class="cover-kicker">Featured Track</p>
-            <h3>{{ a.title }}</h3>
+    <section class="toolbar">
+      <label class="search">
+        <input v-model.trim="keyword" class="searchInput" type="search" placeholder="搜索活动名称、场景或关键词" />
+      </label>
+    </section>
+
+    <div v-if="filteredActivities.length" class="grid">
+      <button v-for="(activity, idx) in filteredActivities" :key="activity.id" class="card" type="button" @click="$emit('open', activity.id)">
+        <div class="cover" :style="thumbStyle(activity, idx)">
+          <span class="coverTag">{{ activity.category }}</span>
+          <div class="coverCopy">
+            <p class="coverMeta">{{ activity.frequency }} · {{ activity.duration }}</p>
+            <h3>{{ activity.title }}</h3>
+            <p>{{ activity.tagline }}</p>
           </div>
         </div>
 
         <div class="meta">
-          <p class="tagline">{{ a.tagline }}</p>
-          <span class="action">查看详情</span>
+          <p class="summaryText">{{ activity.summary }}</p>
+
+          <div class="facts">
+            <span class="fact">{{ activity.difficulty }}</span>
+            <span class="fact">{{ activity.scene }}</span>
+          </div>
+
+          <div class="highlights">
+            <span v-for="highlight in activity.highlights.slice(0, 2)" :key="highlight" class="highlight">{{ highlight }}</span>
+          </div>
+
+          <span class="action">查看内容</span>
         </div>
       </button>
+    </div>
+
+    <div v-else class="empty">
+      <p class="emptyTitle">没有找到匹配内容</p>
+      <p class="emptyText">试着换一个关键词，或者切回“全部”分类。</p>
     </div>
   </section>
 </template>
 
 <script setup>
-defineProps({
+import { computed, ref } from 'vue'
+
+const props = defineProps({
   activities: { type: Array, default: () => [] }
 })
 
 defineEmits(['open'])
 
-function thumbStyle(index) {
-  const palettes = [
-    ['#183b4d', '#29546c', '#d7b178'],
-    ['#29413b', '#49655d', '#e2c58f'],
-    ['#62472f', '#8b6543', '#f1d8ac'],
-    ['#2f3a57', '#4e5d7f', '#d5c7a1']
+const keyword = ref('')
+const filteredActivities = computed(() => {
+  const q = keyword.value.toLowerCase()
+  return (props.activities || []).filter((item) => {
+    if (!q) return true
+    return [item.title, item.tagline, item.summary, item.scene, item.category, ...(item.highlights || [])]
+      .filter(Boolean)
+      .some((text) => String(text).toLowerCase().includes(q))
+  })
+})
+
+function thumbStyle(activity, index) {
+  const palettes = {
+    '运动激活': ['#6d8b74', '#9dc4a8', '#d7e8d7'],
+    '身体舒展': ['#6f9089', '#a9cbc3', '#e6f1ef'],
+    '学习成长': ['#7c8ca8', '#b4c0d8', '#eceff7'],
+    '生活习惯': ['#b78b4a', '#d7b178', '#f2e1be'],
+    '恢复休息': ['#8e9c74', '#c5d3aa', '#edf1e0'],
+    '空间整理': ['#9b8571', '#d2b9a2', '#f1e7dc'],
+    '情绪感知': ['#9f7f8f', '#d3b5c2', '#f3e8ee']
+  }
+  const fallback = [
+    ['#183b4d', '#4f7081', '#d7e6ea'],
+    ['#6d8b74', '#9bb7a2', '#e5efe8'],
+    ['#b78b4a', '#d9bb87', '#f3e5c9']
   ]
-  const [a, b, glow] = palettes[index % palettes.length]
+  const [start, end, glow] = palettes[activity.category] || fallback[index % fallback.length]
   return {
-    background: `linear-gradient(145deg, ${a}, ${b})`,
-    boxShadow: `0 24px 60px color-mix(in srgb, ${glow} 22%, transparent)`
+    background: `linear-gradient(145deg, ${start}, ${end})`,
+    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 24px 48px color-mix(in srgb, ${glow} 36%, transparent)`
   }
 }
 </script>
@@ -58,7 +97,7 @@ function thumbStyle(index) {
 }
 
 .hero {
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 .eyebrow {
@@ -72,19 +111,34 @@ function thumbStyle(index) {
 
 .title {
   margin: 0;
-  max-width: 13ch;
-  font-size: clamp(32px, 4vw, 54px);
-  line-height: 1.02;
+  font-size: clamp(34px, 4vw, 56px);
+  line-height: 0.98;
   letter-spacing: -0.05em;
   color: #152131;
 }
 
-.subtitle {
-  margin: 14px 0 0;
-  max-width: 560px;
+.toolbar {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.search {
+  display: grid;
+  gap: 8px;
+}
+
+.searchInput {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 18px;
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  background: rgba(255, 255, 255, 0.76);
+  padding: 0 16px;
   font-size: 15px;
-  line-height: 1.8;
-  color: rgba(24, 33, 47, 0.62);
+  color: #18212f;
+  outline: none;
+  box-shadow: 0 14px 34px rgba(20, 29, 41, 0.05);
 }
 
 .grid {
@@ -97,24 +151,25 @@ function thumbStyle(index) {
   border: 0;
   padding: 0;
   overflow: hidden;
-  border-radius: 30px;
+  border-radius: 28px;
   text-align: left;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 24px 64px rgba(20, 29, 41, 0.1);
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 22px 54px rgba(20, 29, 41, 0.08);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 30px 80px rgba(20, 29, 41, 0.14);
+  box-shadow: 0 28px 68px rgba(20, 29, 41, 0.12);
 }
 
 .cover {
-  position: relative;
-  min-height: 280px;
-  padding: 22px;
+  min-height: 218px;
+  padding: 18px;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
 }
 
 .cover::after {
@@ -122,82 +177,108 @@ function thumbStyle(index) {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, transparent 20%, rgba(7, 13, 22, 0.2) 100%),
-    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.18), transparent 22%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(7, 13, 22, 0.18)),
+    radial-gradient(circle at 78% 18%, rgba(255, 255, 255, 0.18), transparent 24%);
 }
 
-.cover-noise {
-  position: absolute;
-  inset: -20%;
-  background:
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0 12px, transparent 12px 28px),
-    radial-gradient(circle at 78% 20%, rgba(215, 177, 120, 0.24), transparent 20%);
-  transform: rotate(6deg);
-}
-
-.badge,
-.cover-copy {
+.coverTag,
+.coverCopy {
   position: relative;
   z-index: 1;
 }
 
-.badge {
-  position: absolute;
-  top: 18px;
-  left: 18px;
+.coverTag {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 30px;
+  width: fit-content;
   padding: 0 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.18);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: rgba(248, 244, 236, 0.96);
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-.cover-copy h3 {
-  margin: 8px 0 0;
+.coverMeta {
+  margin: 0;
+  color: rgba(248, 244, 236, 0.8);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.coverCopy h3 {
+  margin: 10px 0 0;
   font-size: 30px;
-  line-height: 1;
+  line-height: 1.02;
   letter-spacing: -0.04em;
   color: #f8f4ec;
 }
 
-.cover-kicker {
-  margin: 0;
-  font-size: 12px;
-  color: rgba(248, 244, 236, 0.72);
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  font-weight: 800;
-}
-
-.meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 18px 22px 20px;
-}
-
-.tagline {
-  margin: 0;
-  color: rgba(24, 33, 47, 0.66);
+.coverCopy p:last-child {
+  margin: 10px 0 0;
+  max-width: 28ch;
+  color: rgba(248, 244, 236, 0.76);
   line-height: 1.7;
   font-size: 14px;
 }
 
+.meta {
+  padding: 18px 18px 20px;
+}
+
+.summaryText {
+  margin: 0;
+  color: rgba(24, 33, 47, 0.72);
+  line-height: 1.8;
+  font-size: 14px;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.fact,
+.highlight {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fact {
+  background: rgba(24, 59, 77, 0.08);
+  color: #183b4d;
+}
+
+.highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.highlight {
+  background: rgba(215, 177, 120, 0.14);
+  color: #805c20;
+}
+
 .action {
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   min-height: 40px;
+  margin-top: 16px;
   padding: 0 14px;
   border-radius: 999px;
   background: rgba(24, 59, 77, 0.08);
@@ -206,6 +287,27 @@ function thumbStyle(index) {
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.empty {
+  padding: 48px 18px;
+  text-align: center;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(24, 33, 47, 0.06);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: #152131;
+}
+
+.emptyText {
+  margin: 10px 0 0;
+  color: rgba(24, 33, 47, 0.62);
+  line-height: 1.7;
 }
 
 @media (max-width: 900px) {

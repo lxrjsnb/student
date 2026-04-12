@@ -26,21 +26,24 @@ defineEmits(['navigate'])
 <style scoped>
 .nav {
   position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  width: min(520px, calc(100vw - 28px));
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  padding: 10px;
-  border-radius: 24px;
-  background: rgba(18, 32, 51, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-radius: 22px 22px 0 0;
+  background: rgba(250, 247, 241, 0.88);
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  border-bottom: 0;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 24px 70px rgba(20, 29, 41, 0.24);
-  z-index: 30;
+  box-shadow: 0 -8px 28px rgba(52, 71, 97, 0.1);
+  z-index: 40;
 }
 
 .item {
@@ -53,7 +56,7 @@ defineEmits(['navigate'])
   justify-items: center;
   align-content: center;
   gap: 6px;
-  color: rgba(248, 244, 236, 0.56);
+  color: rgba(24, 59, 77, 0.46);
   transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
@@ -62,8 +65,8 @@ defineEmits(['navigate'])
 }
 
 .item.active {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8f4ec;
+  background: rgba(215, 177, 120, 0.18);
+  color: #183b4d;
 }
 
 .icon {
@@ -75,5 +78,20 @@ defineEmits(['navigate'])
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
+}
+
+@media (min-width: 769px) {
+  .nav {
+    left: 50%;
+    right: auto;
+    bottom: 18px;
+    width: min(520px, calc(100vw - 28px));
+    margin: 0;
+    transform: translateX(-50%);
+    padding: 10px;
+    border-radius: 24px;
+    border-bottom: 1px solid rgba(24, 33, 47, 0.08);
+    box-shadow: 0 24px 52px rgba(52, 71, 97, 0.12);
+  }
 }
 </style>

@@ -2,16 +2,14 @@
   <div class="bgFX" aria-hidden="true"></div>
 
   <div class="app-container">
-    <main class="page">
+    <main class="page" :class="{ 'page--with-bottom-nav': hasBottomNav }">
       <div v-if="!currentUser && view !== 'adminLogin' && view !== 'adminPanel'" class="login-container">
         <AuthCard
-          :mode="authMode"
           :loading="authLoading"
           :message="authMessage"
           :message-type="authMessageType"
           :api-base-url="apiBaseUrl"
           :default-username="rememberedUsername"
-          @switchMode="switchMode"
           @auth="handleAuth"
           @goAdmin="goAdminLogin"
         />
@@ -71,6 +69,7 @@
         :user="currentUser"
         @logout="adminLogout"
         @goSuperAdmin="goSuperAdminDashboard"
+        @openSettings="goSettings"
       />
 
       <ActivityDetail v-else-if="view === 'activityDetail' && currentUser" :activity="selectedActivity" @back="goActivities" />
@@ -90,7 +89,12 @@
         @logout="logout"
       />
 
-      <SettingsView v-else-if="view === 'settings' && currentUser" :user="currentUser" @back="goProfile" @updated="applyUserPatch" />
+      <SettingsView
+        v-else-if="view === 'settings' && currentUser"
+        :user="currentUser"
+        @back="isAdmin ? goAdminProfile() : goProfile()"
+        @updated="applyUserPatch"
+      />
 
       <Overview
         v-else-if="view === 'overview' && currentUser"
@@ -103,6 +107,7 @@
       <PunchHome
         v-else-if="view === 'home' && currentUser"
         :user="currentUser"
+        :now="now"
         :loading="punchLoading"
         :disabled="punchDisabled"
         :cooldown-remaining="cooldownRemaining"
@@ -118,7 +123,7 @@
       <BottomNav v-if="showMainNav" :current="view" @navigate="navigateMain" />
       <AdminNav v-if="showAdminNav" :current="view" @navigate="navigateAdmin" />
 
-      <RecordsModal :open="recordsOpen" :records="records" :loading="recordsLoading" @close="recordsOpen = false" />
+      <RecordsModal :open="recordsOpen" :records="calendarRecords" :loading="calendarLoading" @close="recordsOpen = false" />
 
       <PunchMessagesModal
         :open="messagesOpen"
@@ -142,7 +147,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { API_BASE_URL, adminLogin, login, logout as apiLogout, me, punch, getPunchMessages, getRecords, register, urgePunchRecord } from './lib/api'
+import { API_BASE_URL, adminLogin, login, logout as apiLogout, me, punch, getPunchMessages, getRecords, urgePhoneChangeRequest, urgePunchRecord } from './lib/api'
 import AuthCard from './components/AuthCard.vue'
 import AdminLogin from './components/AdminLogin.vue'
 import AdminPanel from './components/AdminPanel.vue'
@@ -179,7 +184,6 @@ const nowText = computed(() => now.value.toLocaleString('zh-CN', { hour12: false
 const currentDate = computed(() => now.value.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }))
 const currentTime = computed(() => now.value.toLocaleTimeString('zh-CN', { hour12: false }))
 
-const authMode = ref('login')
 const authMessage = ref('')
 const authMessageType = ref('info')
 const authLoading = ref(false)
@@ -226,9 +230,13 @@ const showAdminNav = computed(() => {
   return ['adminPunchApproval', 'adminActivityUpload', 'adminProfile'].includes(view.value)
 })
 
+const hasBottomNav = computed(() => showMainNav.value || showAdminNav.value)
+
 const records = ref([])
 const recordsLoaded = ref(false)
 const recordsLoading = ref(false)
+const calendarRecords = ref([])
+const calendarLoading = ref(false)
 const filterStart = ref('')
 const filterEnd = ref('')
 
@@ -309,12 +317,6 @@ function loadUserFromStorage() {
   }
 }
 
-function switchMode(mode) {
-  authMode.value = mode
-  authMessage.value = ''
-  authMessageType.value = 'info'
-}
-
 function goHome() {
   if (isAdmin.value) {
     view.value = 'adminPunchApproval'
@@ -353,6 +355,7 @@ function openActivity(activityId) {
 function openRecords() {
   recordsOpen.value = true
   if (!recordsLoaded.value && !recordsLoading.value) refreshRecords()
+  if (!calendarLoading.value) refreshCalendarRecords()
 }
 
 function setFilterStart(value) {
@@ -399,6 +402,8 @@ function logout() {
   view.value = 'home'
   records.value = []
   recordsLoaded.value = false
+  calendarRecords.value = []
+  calendarLoading.value = false
   punchMessage.value = ''
   pendingApproval.value = false
   pendingApprovalLatest.value = ''
@@ -451,31 +456,10 @@ async function handleAuth(payload) {
     authMessageType.value = 'error'
     return
   }
-  if (payload.mode === 'register' && password !== payload.confirmPassword) {
-    authMessage.value = '两次输入的密码不一致。'
-    authMessageType.value = 'error'
-    return
-  }
 
   authLoading.value = true
-  console.log('开始登录请求，模式:', payload.mode)
+  console.log('开始登录请求')
   try {
-    if (payload.mode === 'register') {
-      const data = await register({ username, password })
-      console.log('注册响应:', data)
-      if (data.code === 200) {
-        authMessage.value = '注册成功，请登录。'
-        authMessageType.value = 'success'
-        authMode.value = 'login'
-        authLoading.value = false
-        return
-      }
-      authMessage.value = data.msg || '注册失败。'
-      authMessageType.value = 'error'
-      authLoading.value = false
-      return
-    }
-
     const data = await login({ username, password })
     console.log('登录响应:', data)
     if (data.code === 200) {
@@ -493,6 +477,9 @@ async function handleAuth(payload) {
         id: data.user_id,
         nickname: data.nickname || data.username,
         username: data.username,
+        studentNo: data.student_no || '',
+        phone: data.phone || '',
+        department: data.department || '',
         role: data.role,
         sessionToken: data.session_token || '',
         _expiresAt: data.session_expires_at ? new Date(data.session_expires_at).getTime() : Date.now() + LOGIN_TTL_MS
@@ -570,7 +557,8 @@ async function openPunchMessages() {
     const data = await getPunchMessages({
       userId: currentUser.value.id,
       sessionToken: currentUser.value.sessionToken,
-      limit: 80
+      limit: 80,
+      includePhone: true
     })
     if (data.code === 200) {
       punchMessages.value = data.data || []
@@ -588,13 +576,45 @@ async function openPunchMessages() {
   }
 }
 
+async function refreshCalendarRecords() {
+  if (!currentUser.value?.id || !currentUser.value?.sessionToken) return
+  calendarLoading.value = true
+  try {
+    const data = await getPunchMessages({
+      userId: currentUser.value.id,
+      sessionToken: currentUser.value.sessionToken,
+      limit: 200
+    })
+    if (data.code === 200) {
+      calendarRecords.value = (data.data || []).map((r) => ({
+        ...r,
+        punch_time_raw: r.punch_time,
+        punchAt: new Date(r.punch_time),
+        punch_time: formatDateTime(r.punch_time)
+      }))
+    } else {
+      calendarRecords.value = []
+    }
+  } catch {
+    calendarRecords.value = []
+  } finally {
+    calendarLoading.value = false
+  }
+}
+
 async function urgeRecord(recordId) {
   if (!currentUser.value?.sessionToken) return
   try {
-    const data = await urgePunchRecord({ recordId, sessionToken: currentUser.value.sessionToken })
+    const row = typeof recordId === 'object' && recordId ? recordId : { id: recordId }
+    const idText = String(row?.id || '')
+    const isPhone = row?.item_type === 'phone_change' || idText.startsWith('phone:')
+    const numericId = Number(idText.split(':').pop())
+    const data = isPhone
+      ? await urgePhoneChangeRequest({ requestId: numericId, sessionToken: currentUser.value.sessionToken })
+      : await urgePunchRecord({ recordId: numericId, sessionToken: currentUser.value.sessionToken })
     if (data.code === 200) {
       punchMessages.value = (punchMessages.value || []).map((r) =>
-        Number(r?.id) === Number(recordId) ? { ...r, is_urge: 1 } : r
+        String(r?.id) === idText ? { ...r, is_urge: 1 } : r
       )
       messagesTip.value = data.msg || '催办成功'
       messagesTipType.value = 'info'
@@ -684,6 +704,9 @@ async function handleAdminLogin(payload) {
       const user = {
         id: data.user_id,
         username: data.username,
+        studentNo: data.student_no || '',
+        phone: data.phone || '',
+        department: data.department || '',
         role: data.role,
         sessionToken: data.session_token || '',
         _expiresAt: data.session_expires_at ? new Date(data.session_expires_at).getTime() : Date.now() + LOGIN_TTL_MS
@@ -711,6 +734,8 @@ function adminLogout() {
   adminToken.value = ''
   currentUser.value = null
   view.value = 'home'
+  calendarRecords.value = []
+  calendarLoading.value = false
   localStorage.removeItem(STORAGE_KEY_ADMIN_TOKEN)
   localStorage.removeItem(STORAGE_KEY_USER)
 }
@@ -752,7 +777,6 @@ onMounted(() => {
   reloginListener = (event) => {
     const msg = event?.detail?.msg || '登录已过期，请重新登录'
     logout()
-    authMode.value = 'login'
     authMessageType.value = 'error'
     authMessage.value = msg
   }
@@ -781,7 +805,14 @@ onMounted(() => {
     me({ sessionToken: currentUser.value.sessionToken })
       .then((data) => {
         if (data.code === 200) {
-          applyUserPatch({ nickname: data.nickname || data.username, username: data.username, role: data.role })
+          applyUserPatch({
+            nickname: data.nickname || data.username,
+            username: data.username,
+            studentNo: data.student_no || '',
+            phone: data.phone || '',
+            department: data.department || '',
+            role: data.role
+          })
           setInitialViewForRole(data.role)
         } else if (data.code === 401) {
           logout()
@@ -807,8 +838,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-container {
-  min-height: 100vh;
+  height: 100dvh;
   width: 100%;
+  overflow-y: auto;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .page {
@@ -816,6 +850,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   background: transparent;
+}
+
+.page--with-bottom-nav {
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 }
 
 .top-bar {

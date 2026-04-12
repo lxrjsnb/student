@@ -3,7 +3,7 @@
   <div class="admin">
     <div class="admin__header">
       <div>
-        <h1 class="admin__title">管理员控制台</h1>
+        <h1 class="admin__title">部长控制台</h1>
         <p class="admin__sub">查看用户信息与打卡记录</p>
       </div>
       <div class="admin__actions">
@@ -201,11 +201,11 @@ function formatTime(timeStr) {
 
 function getRoleText(role) {
   const roleMap = {
-    'user': '用户',
-    'admin': '管理员',
-    'super_admin': '超级管理员'
+    'user': '部员',
+    'admin': '部长',
+    'super_admin': '主席'
   }
-  return roleMap[role] || '用户'
+  return roleMap[role] || '部员'
 }
 
 onMounted(() => {

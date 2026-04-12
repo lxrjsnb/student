@@ -24,6 +24,10 @@ def ensure_users_table(cursor):
             nickname VARCHAR(50) DEFAULT '',
             username VARCHAR(50) NOT NULL,
             password VARCHAR(255) NOT NULL,
+            student_no VARCHAR(32) DEFAULT '',
+            class_name VARCHAR(64) DEFAULT '',
+            department VARCHAR(64) DEFAULT '',
+            phone VARCHAR(32) DEFAULT '',
             role ENUM('user', 'admin', 'super_admin') DEFAULT 'user',
             is_online TINYINT(1) NOT NULL DEFAULT 0,
             is_admin TINYINT(1) NOT NULL DEFAULT 0,
@@ -118,6 +122,24 @@ def setup_database():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ''')
         print("✓ admin_applications 表创建成功")
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS phone_change_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                username VARCHAR(50) NOT NULL,
+                current_phone VARCHAR(32) DEFAULT '',
+                requested_phone VARCHAR(32) NOT NULL,
+                approved TINYINT(1) NOT NULL DEFAULT 0,
+                is_urge TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_approved (approved),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
+        print("✓ phone_change_requests 表创建成功")
         
         # 3. 检查并添加 role 字段到 users 表
         cursor.execute('''
@@ -138,15 +160,39 @@ def setup_database():
         else:
             print("✓ users 表已有 role 字段")
 
-        # 3.1 users 表字段补全：nickname、is_online、is_admin、last_login_at、last_logout_at、created_at
+        # 3.1 users 表字段补全：nickname、student_no、class_name、department、phone、is_online、is_admin、last_login_at、last_logout_at、created_at
         if not column_exists('nickname'):
             cursor.execute("ALTER TABLE users ADD COLUMN nickname VARCHAR(50) DEFAULT '' AFTER id")
             print("✓ users 表添加 nickname 字段成功")
         else:
             print("✓ users 表已有 nickname 字段")
 
+        if not column_exists('student_no'):
+            cursor.execute("ALTER TABLE users ADD COLUMN student_no VARCHAR(32) DEFAULT '' AFTER password")
+            print("✓ users 表添加 student_no 字段成功")
+        else:
+            print("✓ users 表已有 student_no 字段")
+
+        if not column_exists('class_name'):
+            cursor.execute("ALTER TABLE users ADD COLUMN class_name VARCHAR(64) DEFAULT '' AFTER student_no")
+            print("✓ users 表添加 class_name 字段成功")
+        else:
+            print("✓ users 表已有 class_name 字段")
+
+        if not column_exists('department'):
+            cursor.execute("ALTER TABLE users ADD COLUMN department VARCHAR(64) DEFAULT '' AFTER class_name")
+            print("✓ users 表添加 department 字段成功")
+        else:
+            print("✓ users 表已有 department 字段")
+
+        if not column_exists('phone'):
+            cursor.execute("ALTER TABLE users ADD COLUMN phone VARCHAR(32) DEFAULT '' AFTER department")
+            print("✓ users 表添加 phone 字段成功")
+        else:
+            print("✓ users 表已有 phone 字段")
+
         if not column_exists('is_online'):
-            cursor.execute("ALTER TABLE users ADD COLUMN is_online TINYINT(1) NOT NULL DEFAULT 0 AFTER password")
+            cursor.execute("ALTER TABLE users ADD COLUMN is_online TINYINT(1) NOT NULL DEFAULT 0 AFTER phone")
             print("✓ users 表添加 is_online 字段成功")
         else:
             print("✓ users 表已有 is_online 字段")
@@ -183,7 +229,11 @@ def setup_database():
                   MODIFY COLUMN nickname VARCHAR(50) DEFAULT '' AFTER id,
                   MODIFY COLUMN username VARCHAR(50) NOT NULL AFTER nickname,
                   MODIFY COLUMN password VARCHAR(255) NOT NULL AFTER username,
-                  MODIFY COLUMN is_online TINYINT(1) NOT NULL DEFAULT 0 AFTER password,
+                  MODIFY COLUMN student_no VARCHAR(32) DEFAULT '' AFTER password,
+                  MODIFY COLUMN class_name VARCHAR(64) DEFAULT '' AFTER student_no,
+                  MODIFY COLUMN department VARCHAR(64) DEFAULT '' AFTER class_name,
+                  MODIFY COLUMN phone VARCHAR(32) DEFAULT '' AFTER department,
+                  MODIFY COLUMN is_online TINYINT(1) NOT NULL DEFAULT 0 AFTER phone,
                   MODIFY COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0 AFTER is_online,
                   MODIFY COLUMN last_login_at DATETIME NULL DEFAULT NULL AFTER is_admin,
                   MODIFY COLUMN last_logout_at DATETIME NULL DEFAULT NULL AFTER last_login_at,
@@ -200,9 +250,8 @@ def setup_database():
         except Exception:
             print("✓ users 表已有 username 唯一索引（或已存在同名索引）")
         
-        # 4. 将 admin 用户设置为超级管理员
-        cursor.execute('UPDATE users SET role = "super_admin" WHERE username = "admin"')
-        print("✓ admin 用户已设置为超级管理员")
+        # 4. 保持角色字段与当前权限定义一致，不再强制覆盖 admin 用户角色
+        print("✓ 跳过 admin 用户角色强制覆盖")
 
         # 4.1 同步 is_admin 字段
         try:

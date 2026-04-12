@@ -1,33 +1,62 @@
 <template>
   <section class="page">
-    <header class="head">
-      <div>
-        <p class="kicker">管理员</p>
-        <h2 class="title">个人中心</h2>
+    <header class="hero">
+      <div class="heroTop">
+        <div class="avatar" aria-hidden="true">
+          <img v-if="user?.avatar" class="avatarImg" :src="user.avatar" alt="头像" />
+          <span v-else>{{ displayInitial }}</span>
+        </div>
+
+        <div class="heroCopy">
+          <p class="eyebrow">Profile</p>
+          <h2 class="title">
+            {{ user?.nickname || user?.username }}
+            <span class="roleInline">{{ roleText }}</span>
+          </h2>
+          <p class="subtitle">{{ studentNoText }}</p>
+        </div>
+      </div>
+
+      <div class="heroMeta">
+        <span class="metaPill">phone {{ phoneText }}</span>
+        <span class="metaPill">department {{ departmentText }}</span>
       </div>
     </header>
 
-    <div class="card">
-      <div class="user">
-        <div class="avatar" aria-hidden="true">
-          <span>{{ displayInitial }}</span>
-        </div>
-        <div class="uMeta">
-          <p class="uName">
-            {{ user?.username }}
-            <span class="tag">管理员</span>
-          </p>
-          <p class="uSub">角色：{{ roleText }}</p>
+    <section class="panel">
+      <div class="panelHead">
+        <div>
+          <p class="panelKicker">Workspace</p>
+          <h3 class="panelTitle">我的</h3>
         </div>
       </div>
 
-      <div class="actions">
-        <button v-if="user?.role === 'super_admin'" class="btn ghost" type="button" @click="$emit('goSuperAdmin')">
-          超级管理员控制台
+      <div class="actionList">
+        <button class="actionRow" type="button" @click="$emit('openSettings')">
+          <div class="actionMain">
+            <span class="actionTitle">账户设置</span>
+            <span class="actionDesc">修改手机号和密码</span>
+          </div>
+          <span class="actionArrow" aria-hidden="true">›</span>
         </button>
-        <button class="btn danger" type="button" @click="$emit('logout')">退出登录</button>
+
+        <button v-if="user?.role === 'super_admin'" class="actionRow" type="button" @click="$emit('goSuperAdmin')">
+          <div class="actionMain">
+            <span class="actionTitle">主席控制台</span>
+            <span class="actionDesc">进入更高权限的管理视图</span>
+          </div>
+          <span class="actionArrow" aria-hidden="true">›</span>
+        </button>
+
+        <button class="actionRow actionRow--danger" type="button" @click="$emit('logout')">
+          <div class="actionMain">
+            <span class="actionTitle">退出登录</span>
+            <span class="actionDesc">清除当前登录状态并返回登录页</span>
+          </div>
+          <span class="actionState actionState--danger">退出</span>
+        </button>
       </div>
-    </div>
+    </section>
   </section>
 </template>
 
@@ -38,124 +67,252 @@ const props = defineProps({
   user: { type: Object, default: null }
 })
 
-defineEmits(['logout', 'goSuperAdmin'])
+defineEmits(['logout', 'goSuperAdmin', 'openSettings'])
 
-const roleText = computed(() => {
-  if (props.user?.role === 'super_admin') return '超级管理员'
-  return '管理员'
+const displayInitial = computed(() => {
+  const value = props.user?.nickname || props.user?.username || '?'
+  return String(value).charAt(0).toUpperCase()
 })
 
-const displayInitial = computed(() => props.user?.username?.charAt(0)?.toUpperCase?.() || '?')
+const roleText = computed(() => {
+  if (props.user?.role === 'super_admin') return '主席'
+  if (props.user?.role === 'admin') return '部长'
+  return '部员'
+})
+
+const phoneText = computed(() => props.user?.phone || '-')
+const departmentText = computed(() => props.user?.department || '-')
+const studentNoText = computed(() => props.user?.studentNo || '-')
 </script>
 
 <style scoped>
 .page {
-  padding: 18px 16px 92px;
-  width: 100%;
-}
-
-.head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.kicker {
-  margin: 0;
-  font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
-}
-
-.title {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 1000;
-  letter-spacing: 0.2px;
-  color: rgba(15, 23, 42, 0.9);
-}
-
-.card {
-  width: 100%;
-  max-width: 420px;
+  max-width: 1120px;
   margin: 0 auto;
-  border-radius: 20px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
+  padding: 32px 18px 120px;
 }
 
-.user {
+.hero {
+  padding: 24px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  box-shadow: 0 22px 54px rgba(20, 29, 41, 0.08);
+}
+
+.heroTop {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 .avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 18px;
+  width: 78px;
+  height: 78px;
+  border-radius: 24px;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  font-weight: 1000;
-  color: rgba(0, 95, 120, 1);
-  background: linear-gradient(135deg, rgba(0, 168, 204, 0.18), rgba(254, 214, 227, 0.4));
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  background: linear-gradient(145deg, #e2c58f, #b78b4a);
+  color: #152131;
+  font-size: 28px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
-.uName {
+.avatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.heroCopy {
+  min-width: 0;
+}
+
+.eyebrow,
+.panelKicker {
   margin: 0;
-  font-weight: 1000;
-  color: rgba(15, 23, 42, 0.9);
-  letter-spacing: 0.2px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(24, 59, 77, 0.54);
+}
+
+.title {
+  margin: 8px 0 0;
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: #152131;
+}
+
+.roleInline {
+  margin-left: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(24, 59, 77, 0.64);
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: rgba(24, 33, 47, 0.62);
+  font-size: 14px;
+}
+
+.heroMeta {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+  margin-top: 18px;
+}
+
+.metaPill {
+  display: inline-flex;
   align-items: center;
-}
-
-.tag {
-  font-size: 12px;
-  padding: 4px 10px;
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
-  background: rgba(0, 168, 204, 0.12);
-  border: 1px solid rgba(0, 168, 204, 0.18);
-  color: rgba(0, 95, 120, 1);
-}
-
-.uSub {
-  margin: 6px 0 0;
+  background: rgba(24, 59, 77, 0.08);
+  color: #183b4d;
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.6);
+  font-weight: 700;
 }
 
-.actions {
-  margin-top: 14px;
+.panel {
+  margin-top: 18px;
+  padding: 22px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(24, 33, 47, 0.08);
+  box-shadow: 0 20px 48px rgba(20, 29, 41, 0.06);
+}
+
+.panelHead {
+  margin-bottom: 16px;
+}
+
+.panelTitle {
+  margin: 8px 0 0;
+  font-size: 30px;
+  line-height: 1.04;
+  letter-spacing: -0.05em;
+  color: #152131;
+}
+
+.actionList {
   display: grid;
   gap: 10px;
 }
 
-.btn {
+.actionRow {
   width: 100%;
   border: 0;
-  border-radius: 16px;
-  padding: 12px 14px;
+  border-radius: 22px;
+  padding: 16px 18px;
+  background: rgba(248, 242, 231, 0.66);
+  border: 1px solid rgba(24, 33, 47, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+
+.actionRow:hover {
+  transform: translateY(-1px);
+  background: rgba(248, 242, 231, 0.88);
+}
+
+.actionRow--danger {
+  background: rgba(154, 47, 39, 0.08);
+  border-color: rgba(154, 47, 39, 0.08);
+}
+
+.actionMain {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.actionTitle {
+  font-size: 16px;
+  font-weight: 800;
+  color: #152131;
+}
+
+.actionDesc {
+  color: rgba(24, 33, 47, 0.62);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.actionArrow,
+.actionState {
+  flex-shrink: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: rgba(24, 59, 77, 0.4);
+}
+
+.actionState {
+  font-size: 12px;
   font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.ghost {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: rgba(15, 23, 42, 0.78);
+.actionState--danger {
+  color: #9a2f27;
 }
 
-.danger {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.22);
-  color: #b91c1c;
+@media (max-width: 768px) {
+  .page {
+    padding: 20px 14px 120px;
+  }
+
+  .hero {
+    padding: 18px;
+    border-radius: 26px;
+  }
+
+  .heroTop {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 20px;
+    font-size: 24px;
+  }
+
+  .title {
+    font-size: 32px;
+  }
+
+  .roleInline {
+    display: inline-block;
+    margin: 8px 0 0;
+    font-size: 13px;
+  }
+
+  .panel {
+    padding: 18px;
+    border-radius: 24px;
+  }
+
+  .panelTitle {
+    font-size: 26px;
+  }
+
+  .actionRow {
+    border-radius: 20px;
+    padding: 15px 16px;
+  }
 }
 </style>
-

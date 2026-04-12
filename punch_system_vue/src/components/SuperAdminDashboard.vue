@@ -6,7 +6,7 @@
         <div class="header-content">
           <div class="header-icon">{{ isSuperAdmin ? '👑' : '👨‍💼' }}</div>
           <div class="header-text">
-            <h1 class="dashboard__title">{{ isSuperAdmin ? '超级管理员控制台' : '管理员控制台' }}</h1>
+            <h1 class="dashboard__title">{{ isSuperAdmin ? '主席控制台' : '部长控制台' }}</h1>
             <p class="dashboard__subtitle">{{ isSuperAdmin ? '管理系统与审批申请' : '管理系统数据' }}</p>
           </div>
         </div>
@@ -48,8 +48,8 @@
             </div>
             <div class="mini-app-card" @click="$emit('goAdmins')">
               <div class="mini-app-icon">👨‍💼</div>
-              <div class="mini-app-title">管理员列表</div>
-              <div class="mini-app-desc">查看所有管理员</div>
+              <div class="mini-app-title">管理成员</div>
+              <div class="mini-app-desc">查看所有部长与主席</div>
             </div>
           </div>
         </div>
@@ -63,7 +63,7 @@
             </div>
             <div class="stat-card">
               <div class="stat-value">{{ stats.totalAdmins }}</div>
-              <div class="stat-label">管理员数</div>
+              <div class="stat-label">管理成员数</div>
             </div>
             <div class="stat-card">
               <div class="stat-value">{{ stats.totalRecords }}</div>

@@ -3,67 +3,51 @@
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">Daily Console</p>
-        <h1 class="title">下午好，{{ displayName }}</h1>
-        <p class="subtitle">把今天的完成感留在系统里，状态会比口号更有说服力。</p>
-      </div>
-
-      <div class="quick-actions" role="group" aria-label="快捷入口">
-        <button class="quick-btn" type="button" @click="$emit('openHistory')">
-          <ClockIcon />
-          <span>历史记录</span>
-        </button>
-        <button class="quick-btn" type="button" @click="$emit('openMessages')">
+        <h1 class="title">{{ greeting }}，{{ displayName }}</h1>
+        <div class="quick-actions" role="group" aria-label="快捷入口">
+          <button class="quick-btn" type="button" aria-label="历史记录" title="历史记录" @click="$emit('openHistory')">
+            <ClockIcon />
+          </button>
+        <button class="quick-btn" type="button" aria-label="消息" title="消息" @click="$emit('openMessages')">
           <span v-if="pendingApproval" class="dot" aria-hidden="true"></span>
           <MessageIcon />
-          <span>审批消息</span>
         </button>
+        </div>
       </div>
     </header>
 
-    <div class="surface">
-      <section class="spotlight">
-        <div class="status-strip">
-          <div class="status-card">
-            <span class="status-label">当前状态</span>
-            <strong class="status-value">{{ pendingApproval ? '待审批中' : '可立即打卡' }}</strong>
-          </div>
-          <div class="status-card">
-            <span class="status-label">待处理记录</span>
-            <strong class="status-value">{{ pendingCount }}</strong>
-          </div>
+    <section class="punch-stage">
+      <div class="scene" aria-hidden="true">
+        <span class="scene-sun"></span>
+        <span class="scene-cloud scene-cloud--left"></span>
+        <span class="scene-cloud scene-cloud--right"></span>
+        <span class="scene-hill scene-hill--back"></span>
+        <span class="scene-hill scene-hill--front"></span>
+        <div class="scene-city">
+          <span class="tower tower--1"></span>
+          <span class="tower tower--2"></span>
+          <span class="tower tower--3"></span>
+          <span class="tower tower--4"></span>
+          <span class="tower tower--5"></span>
         </div>
+      </div>
 
-        <div v-if="pendingApproval" class="pending-tip" role="status" aria-live="polite">
-          你有 {{ pendingCount }} 条记录正在等待管理员处理，可在“审批消息”里查看状态或发起催办。
-        </div>
+      <button class="punch" type="button" :disabled="disabled" @click="$emit('punch')">
+        <span class="punch-label">
+          {{
+            cooldownRemaining > 0
+              ? `${cooldownRemaining}s`
+              : loading
+                ? '提交中'
+                : '打卡'
+          }}
+        </span>
+      </button>
 
-        <div class="punch-stage">
-          <div class="stage-copy">
-            <p class="stage-kicker">One Tap Check-In</p>
-            <h2 class="stage-title">一次提交，完成今天的留痕。</h2>
-            <p class="stage-text">系统会保留你的有效记录，并在审批完成后进入历史日历。</p>
-          </div>
-
-          <button class="punch" type="button" :disabled="disabled" @click="$emit('punch')">
-            <span class="punch-ring"></span>
-            <span class="punch-label">
-              {{
-                cooldownRemaining > 0
-                  ? `${cooldownRemaining}s`
-                  : loading
-                    ? '提交中'
-                    : '立即打卡'
-              }}
-            </span>
-            <span class="punch-sub">Tap to confirm</span>
-          </button>
-        </div>
-
-        <div v-if="message" class="msg" :class="`msg--${messageType}`">
-          {{ message }}
-        </div>
-      </section>
-    </div>
+      <div v-if="message" class="msg" :class="`msg--${messageType}`">
+        {{ message }}
+      </div>
+    </section>
   </section>
 </template>
 
@@ -71,9 +55,11 @@
 import { computed } from 'vue'
 import ClockIcon from './ClockIcon.vue'
 import MessageIcon from './MessageIcon.vue'
+import { getBeijingGreeting } from '../lib/time'
 
 const props = defineProps({
   user: { type: Object, default: null },
+  now: { type: [Date, String, Number], default: () => new Date() },
   loading: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   cooldownRemaining: { type: Number, default: 0 },
@@ -86,25 +72,22 @@ const props = defineProps({
 defineEmits(['punch', 'openHistory', 'openMessages'])
 
 const displayName = computed(() => props.user?.nickname || props.user?.username || '用户')
+const greeting = computed(() => getBeijingGreeting(props.now))
 </script>
 
 <style scoped>
 .home {
-  padding: 32px 18px 120px;
-  max-width: 1120px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  padding: 32px 0 120px;
 }
 
 .hero {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
+  padding: 0 18px;
   margin-bottom: 22px;
 }
 
-.eyebrow,
-.stage-kicker {
+.eyebrow {
   margin: 0 0 10px;
   font-size: 12px;
   font-weight: 800;
@@ -121,48 +104,42 @@ const displayName = computed(() => props.user?.nickname || props.user?.username 
   color: #152131;
 }
 
-.subtitle {
-  margin: 14px 0 0;
-  max-width: 540px;
-  color: rgba(24, 33, 47, 0.62);
-  font-size: 15px;
-  line-height: 1.8;
+.hero-copy {
+  display: grid;
+  justify-items: flex-start;
+  gap: 12px;
+  text-align: left;
 }
 
 .quick-actions {
   display: flex;
   gap: 12px;
+  justify-content: flex-start;
 }
 
 .quick-btn {
   position: relative;
-  min-width: 132px;
-  min-height: 72px;
-  border: 1px solid rgba(24, 33, 47, 0.08);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.68);
-  box-shadow: 0 20px 40px rgba(20, 29, 41, 0.08);
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 8px;
-  color: #183b4d;
-  font-weight: 800;
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: rgba(24, 59, 77, 0.74);
+  transition: transform 0.16s ease, opacity 0.16s ease;
 }
 
 .quick-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 24px 46px rgba(20, 29, 41, 0.12);
+  opacity: 0.8;
 }
 
 .quick-btn :deep(.icon) {
-  width: 18px;
-  height: 18px;
-}
-
-.quick-btn span:last-child {
-  font-size: 13px;
+  width: 20px;
+  height: 20px;
 }
 
 .dot {
@@ -172,178 +149,200 @@ const displayName = computed(() => props.user?.nickname || props.user?.username 
   width: 9px;
   height: 9px;
   border-radius: 999px;
-  background: #c44a3a;
+  background: #c17d55;
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.95);
 }
 
-.surface {
-  border-radius: 36px;
-  padding: 18px;
-  border: 1px solid rgba(24, 33, 47, 0.06);
-  background: rgba(255, 255, 255, 0.28);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.spotlight {
-  border-radius: 30px;
-  padding: 28px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(248, 242, 231, 0.72)),
-    linear-gradient(135deg, rgba(24, 59, 77, 0.12), transparent 56%);
-  box-shadow: 0 24px 64px rgba(20, 29, 41, 0.1);
-}
-
-.status-strip {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.status-card {
-  min-height: 96px;
-  padding: 18px 20px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(24, 33, 47, 0.08);
-  display: grid;
-  align-content: space-between;
-}
-
-.status-label {
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(24, 59, 77, 0.48);
-  font-weight: 800;
-}
-
-.status-value {
-  font-size: 28px;
-  line-height: 1.05;
-  letter-spacing: -0.04em;
-  color: #152131;
-}
-
-.pending-tip {
-  margin-top: 16px;
-  padding: 16px 18px;
-  border-radius: 22px;
-  background: rgba(191, 133, 36, 0.12);
-  border: 1px solid rgba(191, 133, 36, 0.16);
-  color: #84581c;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.7;
-}
-
 .punch-stage {
-  margin-top: 18px;
-  min-height: 420px;
-  border-radius: 30px;
-  padding: 26px;
-  background:
-    radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.42), transparent 24%),
-    linear-gradient(180deg, rgba(24, 59, 77, 0.96), rgba(14, 28, 42, 0.98));
-  color: #f8f4ec;
+  margin-top: 28px;
+  min-height: 320px;
+  padding: 0 18px;
+  position: relative;
   display: grid;
   align-items: center;
   justify-items: center;
   text-align: center;
   overflow: hidden;
+}
+
+.scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.scene-sun {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  width: 76px;
+  height: 76px;
+  margin-left: -118px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(241, 201, 117, 0.95), rgba(241, 201, 117, 0.22) 60%, transparent 72%);
+}
+
+.scene-cloud {
+  position: absolute;
+  top: 58px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  filter: blur(0.2px);
+}
+
+.scene-cloud::before,
+.scene-cloud::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.scene-cloud--left {
+  left: calc(50% - 12px);
+  width: 42px;
+}
+
+.scene-cloud--left::before {
+  left: 4px;
+  width: 16px;
+  height: 16px;
+}
+
+.scene-cloud--left::after {
+  right: 5px;
+  width: 18px;
+  height: 18px;
+}
+
+.scene-cloud--right {
+  right: calc(50% - 74px);
+  width: 48px;
+}
+
+.scene-cloud--right::before {
+  left: 6px;
+  width: 18px;
+  height: 18px;
+}
+
+.scene-cloud--right::after {
+  right: 7px;
+  width: 20px;
+  height: 20px;
+}
+
+.scene-hill {
+  position: absolute;
+  left: 50%;
+  border-radius: 50% 50% 0 0;
+  transform: translateX(-50%);
+}
+
+.scene-hill--back {
+  bottom: 84px;
+  width: 300px;
+  height: 120px;
+  background: linear-gradient(180deg, rgba(180, 220, 194, 0.18), rgba(162, 209, 180, 0.3));
+}
+
+.scene-hill--front {
+  bottom: 54px;
+  width: 360px;
+  height: 108px;
+  background: linear-gradient(180deg, rgba(146, 205, 170, 0.1), rgba(146, 205, 170, 0.24));
+}
+
+.scene-city {
+  position: absolute;
+  left: 50%;
+  bottom: 104px;
+  width: 244px;
+  height: 110px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+}
+
+.tower {
+  width: 28px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, rgba(157, 225, 204, 0.5), rgba(127, 204, 182, 0.3));
   position: relative;
 }
 
-.punch-stage::before {
+.tower::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 50% 36%, rgba(215, 177, 120, 0.16), transparent 18%),
-    radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.08), transparent 22%),
-    radial-gradient(circle at 82% 18%, rgba(109, 139, 116, 0.16), transparent 18%);
-  pointer-events: none;
+  inset: 10px 8px 12px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.24) 0 5px,
+    transparent 5px 10px
+  );
 }
 
-.stage-copy,
+.tower--1 {
+  height: 58px;
+}
+
+.tower--2 {
+  height: 90px;
+}
+
+.tower--3 {
+  height: 106px;
+}
+
+.tower--4 {
+  height: 82px;
+}
+
+.tower--5 {
+  height: 66px;
+}
+
 .punch {
+  width: 176px;
+  height: 176px;
+  border-radius: 999px;
+  border: 1px solid rgba(183, 139, 74, 0.18);
+  background: linear-gradient(180deg, rgba(214, 177, 120, 0.98), rgba(191, 144, 74, 0.96));
+  color: #fffaf2;
+  box-shadow: 0 14px 30px rgba(183, 139, 74, 0.22);
+  display: grid;
+  place-items: center;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
   position: relative;
   z-index: 1;
 }
 
-.stage-title {
-  margin: 0;
-  font-size: clamp(30px, 3vw, 44px);
-  line-height: 1.02;
-  letter-spacing: -0.05em;
-}
-
-.stage-text {
-  margin: 14px auto 0;
-  max-width: 480px;
-  color: rgba(248, 244, 236, 0.72);
-  font-size: 15px;
-  line-height: 1.8;
-}
-
-.punch {
-  margin-top: 28px;
-  width: 256px;
-  height: 256px;
-  border-radius: 999px;
-  border: 0;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.14) 34%, transparent 35%),
-    linear-gradient(145deg, #e6c58d, #b78b4a 60%, #8f6a34 100%);
-  color: #152131;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 30px 48px rgba(0, 0, 0, 0.26);
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 6px;
-  position: relative;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
-}
-
 .punch:hover:not(:disabled) {
-  transform: translateY(-2px) scale(1.01);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 36px 58px rgba(0, 0, 0, 0.3);
-  filter: saturate(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(183, 139, 74, 0.26);
+  background: linear-gradient(180deg, rgba(222, 186, 132, 0.98), rgba(197, 151, 82, 0.96));
 }
 
 .punch:disabled {
-  opacity: 0.68;
+  opacity: 0.64;
   cursor: not-allowed;
   box-shadow: none;
 }
 
-.punch-ring {
-  position: absolute;
-  inset: 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.34);
-}
-
 .punch-label {
-  font-size: 28px;
-  letter-spacing: 0.06em;
-  font-weight: 900;
-}
-
-.punch-sub {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: rgba(24, 33, 47, 0.62);
+  font-size: 26px;
+  letter-spacing: 0.02em;
   font-weight: 800;
 }
 
 .msg {
-  margin-top: 16px;
+  margin-top: 20px;
   padding: 16px 18px;
   border-radius: 20px;
   border: 1px solid transparent;
@@ -377,26 +376,61 @@ const displayName = computed(() => props.user?.nickname || props.user?.username 
 
 @media (max-width: 760px) {
   .hero {
-    flex-direction: column;
-    align-items: flex-start;
+    margin-bottom: 18px;
+  }
+
+  .hero-copy {
+    width: 100%;
+    text-align: left;
+    gap: 10px;
+  }
+
+  .title {
+    font-size: 30px;
+    line-height: 1.06;
   }
 
   .quick-actions {
-    width: 100%;
+    width: auto;
+    justify-content: flex-start;
   }
 
   .quick-btn {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .status-strip {
-    grid-template-columns: 1fr;
+    width: 28px;
+    height: 28px;
   }
 
   .punch {
-    width: 216px;
-    height: 216px;
+    width: 156px;
+    height: 156px;
+  }
+
+  .scene {
+    opacity: 0.42;
+  }
+
+  .scene-sun {
+    top: 42px;
+    width: 62px;
+    height: 62px;
+    margin-left: -94px;
+  }
+
+  .scene-city {
+    width: 208px;
+    gap: 8px;
+  }
+
+  .tower {
+    width: 24px;
+  }
+
+  .scene-hill--back {
+    width: 248px;
+  }
+
+  .scene-hill--front {
+    width: 304px;
   }
 }
 </style>

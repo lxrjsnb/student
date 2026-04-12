@@ -3,7 +3,7 @@
     <div class="admin-apply__container">
       <div class="admin-apply__header">
         <h1 class="admin-apply__title">申请管理员权限</h1>
-        <p class="admin-apply__subtitle">填写申请信息，等待超级管理员审批</p>
+        <p class="admin-apply__subtitle">填写申请信息，等待主席审批</p>
       </div>
 
       <div class="admin-apply__content">
@@ -54,7 +54,7 @@
           <div class="status-card">
             <div class="status-icon">📋</div>
             <h3 class="status-title">申请已提交</h3>
-            <p class="status-text">您的管理员申请已提交，请等待超级管理员审批。</p>
+            <p class="status-text">您的管理员申请已提交，请等待主席审批。</p>
             <p class="status-time">提交时间：{{ applicationTime }}</p>
           </div>
         </div>
@@ -114,7 +114,8 @@ async function submitApplication() {
     const requestData = {
       user_id: props.user.id,
       username: props.user.username,
-      reason: reason.value.trim()
+      reason: reason.value.trim(),
+      sessionToken: props.user.sessionToken
     }
     console.log('发送请求数据:', requestData)
     

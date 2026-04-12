@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import secrets
 import sys
 import threading
@@ -123,6 +124,24 @@ def _ensure_schema_once():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 '''
             )
+            cursor.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS phone_change_requests (
+                  id INT AUTO_INCREMENT PRIMARY KEY,
+                  user_id INT NOT NULL,
+                  username VARCHAR(50) NOT NULL,
+                  current_phone VARCHAR(32) DEFAULT '',
+                  requested_phone VARCHAR(32) NOT NULL,
+                  approved TINYINT(1) NOT NULL DEFAULT 0,
+                  is_urge TINYINT(1) NOT NULL DEFAULT 0,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  KEY idx_user_id (user_id),
+                  KEY idx_approved (approved),
+                  KEY idx_created_at (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                '''
+            )
 
             def _ensure_users_column(column_name, ddl_sql):
                 cursor.execute("SHOW COLUMNS FROM users LIKE %s", (column_name,))
@@ -141,6 +160,22 @@ def _ensure_schema_once():
             _ensure_users_column(
                 'last_logout_at',
                 "ALTER TABLE users ADD COLUMN last_logout_at DATETIME NULL DEFAULT NULL"
+            )
+            _ensure_users_column(
+                'student_no',
+                "ALTER TABLE users ADD COLUMN student_no VARCHAR(32) DEFAULT ''"
+            )
+            _ensure_users_column(
+                'class_name',
+                "ALTER TABLE users ADD COLUMN class_name VARCHAR(64) DEFAULT ''"
+            )
+            _ensure_users_column(
+                'department',
+                "ALTER TABLE users ADD COLUMN department VARCHAR(64) DEFAULT ''"
+            )
+            _ensure_users_column(
+                'phone',
+                "ALTER TABLE users ADD COLUMN phone VARCHAR(32) DEFAULT ''"
             )
 
             conn.commit()
@@ -196,6 +231,40 @@ def _read_bearer_token():
         return None
     token = auth.replace('Bearer ', '').strip()
     return token or None
+
+def _encode_item_id(item_type, item_id):
+    return f'{item_type}:{int(item_id)}'
+
+def _parse_item_ids(raw_ids):
+    punch_ids = []
+    phone_ids = []
+
+    for raw in raw_ids or []:
+        if isinstance(raw, int):
+            punch_ids.append(int(raw))
+            continue
+
+        text = str(raw or '').strip()
+        if not text:
+            continue
+
+        if text.isdigit():
+            punch_ids.append(int(text))
+            continue
+
+        item_type, sep, item_id = text.partition(':')
+        if not sep or not item_id.isdigit():
+            raise ValueError('invalid item id')
+
+        item_id_int = int(item_id)
+        if item_type == 'punch':
+            punch_ids.append(item_id_int)
+        elif item_type == 'phone':
+            phone_ids.append(item_id_int)
+        else:
+            raise ValueError('invalid item type')
+
+    return punch_ids, phone_ids
 
 def _get_user_session(token):
     if not token:
@@ -342,6 +411,31 @@ def _verify_password_and_maybe_upgrade(user_row, password_plain):
     except Exception:
         return False
 
+def _validate_password_policy(user_row, password_plain):
+    password_text = str(password_plain or '')
+    if len(password_text) < 8 or len(password_text) > 64:
+        return '密码长度需为 8-64 位。'
+    if not re.search(r'[A-Z]', password_text) or not re.search(r'[a-z]', password_text) or not re.search(r'\d', password_text):
+        return '密码至少包含大写字母、小写字母和数字。'
+
+    normalized_password = password_text.casefold()
+    personal_values = [
+        user_row.get('username'),
+        user_row.get('nickname'),
+        user_row.get('student_no'),
+        user_row.get('phone'),
+        user_row.get('class_name'),
+        user_row.get('department'),
+    ]
+    for value in personal_values:
+        value_text = str(value or '').strip()
+        if len(value_text) < 3:
+            continue
+        if value_text.casefold() in normalized_password:
+            return '密码不得包含账号、学号、手机号等个人信息。'
+
+    return None
+
 def user_session_optional(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -406,6 +500,30 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def user_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = _read_bearer_token()
+        session = None
+        try:
+            session = _get_user_session(token) if token else None
+        except ReLoginRequired:
+            g.relogin_required = True
+            session = None
+        except Exception as e:
+            logger.error(f"读取 user_sessions 失败（可能未建表）: {e}")
+            session = None
+
+        if not session:
+            if getattr(g, 'relogin_required', False):
+                return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
+            return jsonify({'code': 401, 'msg': '需要登录'}), 401
+
+        g.user_session = session
+        g.user_role = _get_user_role(session.get('user_id'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 def super_admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -434,56 +552,18 @@ def super_admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def _is_self_or_admin(target_user_id):
+    session = getattr(g, 'user_session', None) or {}
+    role = getattr(g, 'user_role', None) or _get_user_role(session.get('user_id'))
+    session_user_id = session.get('user_id')
+    if role in ['admin', 'super_admin']:
+        return True
+    return int(session_user_id or 0) == int(target_user_id or 0)
+
 # 1. 注册接口
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    nickname = (data.get('nickname') or '').strip()
-
-    if not username or not password:
-        return jsonify({'code': 400, 'msg': '用户名和密码不能为空'}), 400
-
-    password_hash = generate_password_hash(password)
-    if not nickname:
-        nickname = username
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        new_user_id = None
-        try:
-            cursor.execute(
-                'INSERT INTO users (nickname, username, password, is_online, is_admin) VALUES (%s, %s, %s, 0, 0)',
-                (nickname, username, password_hash)
-            )
-            new_user_id = cursor.lastrowid
-        except Exception:
-            # 兼容旧表结构
-            cursor.execute('INSERT INTO users (username, password) VALUES (%s, %s)', (username, password_hash))
-            new_user_id = cursor.lastrowid
-        conn.commit()
-
-        # 若系统中还没有超级管理员，则把首个注册用户提升为超级管理员（避免写死账号密码）
-        try:
-            cursor.execute('SELECT COUNT(*) AS cnt FROM users WHERE role = %s', ('super_admin',))
-            row = cursor.fetchone() or {}
-            if int(row.get('cnt') or 0) == 0 and new_user_id:
-                cursor.execute(
-                    'UPDATE users SET role = %s, is_admin = 1 WHERE id = %s',
-                    ('super_admin', new_user_id)
-                )
-                conn.commit()
-        except Exception:
-            pass
-
-        return jsonify({'code': 200, 'msg': '注册成功'})
-    except pymysql.err.IntegrityError:
-        return jsonify({'code': 400, 'msg': '用户名已存在'}), 400
-    finally:
-        cursor.close()
-        conn.close()
+    return jsonify({'code': 403, 'msg': '系统已禁用用户注册，请联系管理员创建账号'}), 403
 
 # 2. 登录接口
 @app.route('/login', methods=['POST'])
@@ -526,6 +606,9 @@ def login():
             'user_id': user['id'], 
             'username': user['username'],
             'nickname': user.get('nickname') or user['username'],
+            'student_no': user.get('student_no') or '',
+            'phone': user.get('phone') or '',
+            'department': user.get('department') or '',
             'is_admin': is_admin,
             'is_super_admin': is_super_admin,
             'role': role,
@@ -538,19 +621,9 @@ def login():
 
 # 3. 打卡接口
 @app.route('/punch', methods=['POST'])
-@user_session_optional
+@user_required
 def punch():
-    data = request.json
-    user_id = data.get('user_id')
-
-    if getattr(g, 'user_session', None):
-        token_user_id = g.user_session.get('user_id')
-        if user_id and int(user_id) != int(token_user_id):
-            return jsonify({'code': 403, 'msg': '无权限操作该用户'}), 403
-        user_id = token_user_id
-
-    if not user_id:
-        return jsonify({'code': 400, 'msg': '缺少用户ID'}), 400
+    user_id = g.user_session.get('user_id')
 
     _ensure_punch_records_schema_once()
 
@@ -600,14 +673,13 @@ def punch():
 
 # 4. 查询打卡记录接口
 @app.route('/records/<int:user_id>', methods=['GET'])
-@user_session_optional
+@user_required
 def get_records(user_id):
-    if getattr(g, 'user_session', None):
-        token_user_id = g.user_session.get('user_id')
-        if int(user_id) != int(token_user_id):
-            return jsonify({'code': 403, 'msg': '无权限查看该用户记录'}), 403
+    if not _is_self_or_admin(user_id):
+        return jsonify({'code': 403, 'msg': '无权限查看该用户记录'}), 403
 
     _ensure_punch_records_schema_once()
+    _ensure_schema_once()
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -619,22 +691,35 @@ def get_records(user_id):
     records = cursor.fetchall() or []
 
     pending_count = 0
-    pending_latest = None
+    pending_latest_candidates = []
     try:
         cursor.execute(
             'SELECT COUNT(*) AS cnt, MAX(punch_time) AS latest FROM punch_records WHERE user_id = %s AND approved = 0',
             (user_id,)
         )
         row = cursor.fetchone() or {}
-        pending_count = int(row.get('cnt') or 0)
-        pending_latest = row.get('latest')
+        pending_count += int(row.get('cnt') or 0)
+        if row.get('latest'):
+            pending_latest_candidates.append(row.get('latest'))
     except Exception:
-        pending_count = 0
-        pending_latest = None
+        pass
+
+    try:
+        cursor.execute(
+            'SELECT COUNT(*) AS cnt, MAX(created_at) AS latest FROM phone_change_requests WHERE user_id = %s AND approved = 0',
+            (user_id,)
+        )
+        row = cursor.fetchone() or {}
+        pending_count += int(row.get('cnt') or 0)
+        if row.get('latest'):
+            pending_latest_candidates.append(row.get('latest'))
+    except Exception:
+        pass
 
     cursor.close()
     conn.close()
 
+    pending_latest = max(pending_latest_candidates) if pending_latest_candidates else None
     pending_latest_text = None
     try:
         if pending_latest:
@@ -653,20 +738,16 @@ def get_records(user_id):
 
 # 4.1 查询用户提交的打卡审批消息（含待审批/通过/驳回）
 @app.route('/records/messages/<int:user_id>', methods=['GET'])
-@user_session_optional
+@user_required
 def get_punch_messages(user_id):
-    if not getattr(g, 'user_session', None):
-        if getattr(g, 'relogin_required', False):
-            return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
-        return jsonify({'code': 401, 'msg': '需要登录'}), 401
-
-    token_user_id = g.user_session.get('user_id')
-    if int(user_id) != int(token_user_id):
+    if not _is_self_or_admin(user_id):
         return jsonify({'code': 403, 'msg': '无权限查看该用户记录'}), 403
 
     _ensure_punch_records_schema_once()
+    _ensure_schema_once()
 
     limit = request.args.get('limit')
+    include_phone = (request.args.get('include_phone') or '').strip() == '1'
     try:
         limit_int = int(limit or 50)
     except Exception:
@@ -689,7 +770,42 @@ def get_punch_messages(user_id):
             ''',
             (user_id, limit_int)
         )
-        rows = cursor.fetchall() or []
+        rows = []
+        for row in (cursor.fetchall() or []):
+            rows.append({
+                'id': _encode_item_id('punch', row['id']),
+                'item_type': 'punch',
+                'punch_time': row.get('punch_time'),
+                'approved': row.get('approved', 0),
+                'is_urge': row.get('is_urge', 0),
+                'title': '打卡记录',
+                'detail': '打卡提交记录'
+            })
+
+        if include_phone:
+            cursor.execute(
+                '''
+                SELECT id, created_at, approved, is_urge, current_phone, requested_phone
+                FROM phone_change_requests
+                WHERE user_id = %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT %s
+                ''',
+                (user_id, limit_int)
+            )
+            for row in (cursor.fetchall() or []):
+                rows.append({
+                    'id': _encode_item_id('phone', row['id']),
+                    'item_type': 'phone_change',
+                    'punch_time': row.get('created_at'),
+                    'approved': row.get('approved', 0),
+                    'is_urge': row.get('is_urge', 0),
+                    'title': '手机号变更',
+                    'detail': f"申请改为 {row.get('requested_phone') or '-'}"
+                })
+
+        rows.sort(key=lambda item: (str(item.get('punch_time') or ''), str(item.get('id') or '')), reverse=True)
+        rows = rows[:limit_int]
         return jsonify({'code': 200, 'data': rows})
     finally:
         cursor.close()
@@ -697,13 +813,8 @@ def get_punch_messages(user_id):
 
 # 4.2 用户对待审批记录发起催办
 @app.route('/records/<int:record_id>/urge', methods=['POST'])
-@user_session_optional
+@user_required
 def urge_punch_record(record_id):
-    if not getattr(g, 'user_session', None):
-        if getattr(g, 'relogin_required', False):
-            return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
-        return jsonify({'code': 401, 'msg': '需要登录'}), 401
-
     _ensure_punch_records_schema_once()
     user_id = int(g.user_session.get('user_id'))
 
@@ -737,21 +848,54 @@ def urge_punch_record(record_id):
         cursor.close()
         conn.close()
 
+@app.route('/phone-change-requests/<int:request_id>/urge', methods=['POST'])
+@user_required
+def urge_phone_change_request(request_id):
+    user_id = int(g.user_session.get('user_id'))
+    _ensure_schema_once()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, user_id, approved, is_urge
+            FROM phone_change_requests
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (request_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'code': 404, 'msg': '申请不存在'}), 404
+        if int(row.get('user_id') or 0) != user_id:
+            return jsonify({'code': 403, 'msg': '无权限操作该申请'}), 403
+        if int(row.get('approved') or 0) != 0:
+            return jsonify({'code': 400, 'msg': '该申请已处理，无法催办'}), 400
+        if int(row.get('is_urge') or 0) == 1:
+            return jsonify({'code': 200, 'msg': '已催办', 'updated': 0}), 200
+
+        cursor.execute(
+            'UPDATE phone_change_requests SET is_urge = 1 WHERE id = %s AND approved = 0',
+            (request_id,)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '催办成功', 'updated': cursor.rowcount})
+    finally:
+        cursor.close()
+        conn.close()
+
 # 可选：前端刷新时校验 session_token
 @app.route('/me', methods=['GET'])
-@user_session_optional
+@user_required
 def me():
-    if not getattr(g, 'user_session', None):
-        if getattr(g, 'relogin_required', False):
-            return jsonify({'code': 401, 'msg': f'登录已超过{RELOGIN_AFTER_DAYS}天，请重新登录'}), 401
-        return jsonify({'code': 401, 'msg': '需要登录'}), 401
-
     user_id = g.user_session.get('user_id')
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
-            'SELECT id, nickname, username, role, is_online, is_admin, last_login_at, last_logout_at, created_at FROM users WHERE id = %s',
+            'SELECT id, nickname, username, student_no, phone, department, role, is_online, is_admin, last_login_at, last_logout_at, created_at FROM users WHERE id = %s',
             (user_id,)
         )
         user = cursor.fetchone()
@@ -763,6 +907,9 @@ def me():
             'user_id': user['id'],
             'nickname': user.get('nickname') or user['username'],
             'username': user['username'],
+            'student_no': user.get('student_no') or '',
+            'phone': user.get('phone') or '',
+            'department': user.get('department') or '',
             'role': role,
             'is_admin': role in ['admin', 'super_admin'],
             'is_super_admin': role == 'super_admin',
@@ -776,11 +923,8 @@ def me():
         conn.close()
 
 @app.route('/logout', methods=['POST'])
-@user_session_optional
+@user_required
 def logout():
-    if not getattr(g, 'user_session', None):
-        return jsonify({'code': 200, 'msg': '已退出'}), 200
-
     token = _read_bearer_token()
     user_id = g.user_session.get('user_id')
 
@@ -847,6 +991,9 @@ def admin_login():
         'user_id': user['id'],
         'username': user['username'],
         'nickname': user.get('nickname') or user['username'],
+        'student_no': user.get('student_no') or '',
+        'phone': user.get('phone') or '',
+        'department': user.get('department') or '',
         'is_admin': True,
         'is_super_admin': role == 'super_admin',
         'role': role,
@@ -912,6 +1059,7 @@ def get_all_records():
 @admin_required
 def admin_get_punch_approvals():
     _ensure_punch_records_schema_once()
+    _ensure_schema_once()
 
     user_id = (request.args.get('user_id') or '').strip()
     username = (request.args.get('username') or '').strip()
@@ -976,7 +1124,95 @@ def admin_get_punch_approvals():
 
     where_sql = ('WHERE ' + ' AND '.join(clauses)) if clauses else ''
 
-    # 兼容旧前端：仅传 limit 的方式
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f'''
+            SELECT
+              'punch' AS item_type,
+              pr.id AS raw_id,
+              pr.user_id,
+              u.username,
+              u.nickname,
+              pr.punch_time,
+              pr.approved,
+              pr.is_urge,
+              '打卡记录' AS content
+            FROM punch_records pr
+            JOIN users u ON pr.user_id = u.id
+            {where_sql}
+            ORDER BY pr.punch_time DESC, pr.id DESC
+            ''',
+            tuple(params)
+        )
+        punch_rows = cursor.fetchall() or []
+
+        phone_clauses = ['IFNULL(u.is_admin, 0) = 0']
+        phone_params = []
+        if status == 'pending':
+            phone_clauses.append('pcr.approved = 0')
+        elif status == 'approved':
+            phone_clauses.append('pcr.approved = 1')
+        elif status == 'rejected':
+            phone_clauses.append('pcr.approved = -1')
+        if username:
+            phone_clauses.append('(u.username LIKE %s OR u.nickname LIKE %s)')
+            like = f'%{username}%'
+            phone_params.extend([like, like])
+        if user_id:
+            phone_clauses.append('pcr.user_id = %s')
+            phone_params.append(user_id_int)
+        if start_dt:
+            phone_clauses.append('pcr.created_at >= %s')
+            phone_params.append(start_dt.strftime('%Y-%m-%d 00:00:00'))
+        if end_dt:
+            phone_clauses.append('pcr.created_at <= %s')
+            phone_params.append((end_dt + timedelta(days=1) - timedelta(seconds=1)).strftime('%Y-%m-%d %H:%M:%S'))
+
+        phone_where_sql = 'WHERE ' + ' AND '.join(phone_clauses)
+        cursor.execute(
+            f'''
+            SELECT
+              'phone' AS item_type,
+              pcr.id AS raw_id,
+              pcr.user_id,
+              u.username,
+              u.nickname,
+              pcr.created_at AS punch_time,
+              pcr.approved,
+              pcr.is_urge,
+              CONCAT('手机号改为 ', pcr.requested_phone) AS content
+            FROM phone_change_requests pcr
+            JOIN users u ON pcr.user_id = u.id
+            {phone_where_sql}
+            ORDER BY pcr.created_at DESC, pcr.id DESC
+            ''',
+            tuple(phone_params)
+        )
+        phone_rows = cursor.fetchall() or []
+    finally:
+        cursor.close()
+        conn.close()
+
+    merged = []
+    for row in punch_rows + phone_rows:
+        row['id'] = _encode_item_id(row.get('item_type'), row.get('raw_id'))
+        merged.append(row)
+
+    def _approval_sort_key(row):
+        approved = int(row.get('approved') or 0)
+        is_pending = 0 if approved == 0 else 1
+        is_urged = 0 if approved == 0 and int(row.get('is_urge') or 0) == 1 else 1
+        return (
+            is_pending,
+            is_urged,
+            str(row.get('punch_time') or ''),
+            str(row.get('id') or '')
+        )
+
+    merged.sort(key=_approval_sort_key)
+
     if page is None and page_size is None and limit is not None:
         try:
             limit_int = int(limit)
@@ -985,28 +1221,8 @@ def admin_get_punch_approvals():
         if limit_int <= 0:
             limit_int = 2000
         limit_int = min(limit_int, 5000)
+        return jsonify({'code': 200, 'data': merged[:limit_int], 'meta': {'mode': 'limit', 'limit': limit_int}})
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                f'''
-                SELECT pr.id, pr.user_id, u.username, u.nickname, pr.punch_time, pr.approved, pr.is_urge
-                FROM punch_records pr
-                JOIN users u ON pr.user_id = u.id
-                {where_sql}
-                ORDER BY pr.punch_time DESC, pr.id DESC
-                LIMIT %s
-                ''',
-                tuple(params + [limit_int])
-            )
-            records = cursor.fetchall()
-            return jsonify({'code': 200, 'data': records, 'meta': {'mode': 'limit', 'limit': limit_int}})
-        finally:
-            cursor.close()
-            conn.close()
-
-    # 新方式：分页加载
     try:
         page_int = int(page or 1)
         page_size_int = int(page_size or 200)
@@ -1019,43 +1235,26 @@ def admin_get_punch_approvals():
         page_size_int = 200
     page_size_int = min(page_size_int, 500)
     offset = (page_int - 1) * page_size_int
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            f'''
-            SELECT pr.id, pr.user_id, u.username, u.nickname, pr.punch_time, pr.approved, pr.is_urge
-            FROM punch_records pr
-            JOIN users u ON pr.user_id = u.id
-            {where_sql}
-            ORDER BY pr.punch_time DESC, pr.id DESC
-            LIMIT %s OFFSET %s
-            ''',
-            tuple(params + [page_size_int + 1, offset])
-        )
-        rows = cursor.fetchall() or []
-        has_more = len(rows) > page_size_int
-        records = rows[:page_size_int]
-        return jsonify({
-            'code': 200,
-            'data': records,
-            'meta': {
-                'mode': 'page',
-                'page': page_int,
-                'page_size': page_size_int,
-                'has_more': has_more
-            }
-        })
-    finally:
-        cursor.close()
-        conn.close()
+    page_rows = merged[offset:offset + page_size_int + 1]
+    has_more = len(page_rows) > page_size_int
+    records = page_rows[:page_size_int]
+    return jsonify({
+        'code': 200,
+        'data': records,
+        'meta': {
+            'mode': 'page',
+            'page': page_int,
+            'page_size': page_size_int,
+            'has_more': has_more
+        }
+    })
 
 # 10. 批量审批通过打卡记录（管理员）
 @app.route('/admin/punch-approvals/approve', methods=['POST'])
 @admin_required
 def admin_approve_punch_records():
     _ensure_punch_records_schema_once()
+    _ensure_schema_once()
 
     data = request.json or {}
     record_ids = data.get('record_ids') or []
@@ -1063,24 +1262,54 @@ def admin_approve_punch_records():
         return jsonify({'code': 400, 'msg': 'record_ids 不能为空'}), 400
 
     try:
-        record_ids = [int(x) for x in record_ids]
+        punch_ids, phone_ids = _parse_item_ids(record_ids)
     except Exception:
-        return jsonify({'code': 400, 'msg': 'record_ids 必须为数字数组'}), 400
+        return jsonify({'code': 400, 'msg': 'record_ids 格式错误'}), 400
 
-    placeholders = ','.join(['%s'] * len(record_ids))
+    updated = 0
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            f'''
-            UPDATE punch_records
-            SET approved = 1, is_urge = 0
-            WHERE id IN ({placeholders}) AND approved = 0
-            ''',
-            tuple(record_ids)
-        )
+        if punch_ids:
+            placeholders = ','.join(['%s'] * len(punch_ids))
+            cursor.execute(
+                f'''
+                UPDATE punch_records
+                SET approved = 1, is_urge = 0
+                WHERE id IN ({placeholders}) AND approved = 0
+                ''',
+                tuple(punch_ids)
+            )
+            updated += cursor.rowcount
+
+        if phone_ids:
+            placeholders = ','.join(['%s'] * len(phone_ids))
+            cursor.execute(
+                f'''
+                SELECT id, user_id, requested_phone
+                FROM phone_change_requests
+                WHERE id IN ({placeholders}) AND approved = 0
+                ''',
+                tuple(phone_ids)
+            )
+            phone_rows = cursor.fetchall() or []
+            if phone_rows:
+                cursor.execute(
+                    f'''
+                    UPDATE phone_change_requests
+                    SET approved = 1, is_urge = 0
+                    WHERE id IN ({placeholders}) AND approved = 0
+                    ''',
+                    tuple(phone_ids)
+                )
+                updated += cursor.rowcount
+                for row in phone_rows:
+                    cursor.execute(
+                        'UPDATE users SET phone = %s WHERE id = %s',
+                        (row.get('requested_phone') or '', row.get('user_id'))
+                    )
         conn.commit()
-        return jsonify({'code': 200, 'msg': '审批成功', 'updated': cursor.rowcount})
+        return jsonify({'code': 200, 'msg': '审批成功', 'updated': updated})
     finally:
         cursor.close()
         conn.close()
@@ -1090,6 +1319,7 @@ def admin_approve_punch_records():
 @admin_required
 def admin_reject_punch_records():
     _ensure_punch_records_schema_once()
+    _ensure_schema_once()
 
     data = request.json or {}
     record_ids = data.get('record_ids') or []
@@ -1097,24 +1327,39 @@ def admin_reject_punch_records():
         return jsonify({'code': 400, 'msg': 'record_ids 不能为空'}), 400
 
     try:
-        record_ids = [int(x) for x in record_ids]
+        punch_ids, phone_ids = _parse_item_ids(record_ids)
     except Exception:
-        return jsonify({'code': 400, 'msg': 'record_ids 必须为数字数组'}), 400
+        return jsonify({'code': 400, 'msg': 'record_ids 格式错误'}), 400
 
-    placeholders = ','.join(['%s'] * len(record_ids))
+    updated = 0
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            f'''
-            UPDATE punch_records
-            SET approved = -1, is_urge = 0
-            WHERE id IN ({placeholders}) AND approved = 0
-            ''',
-            tuple(record_ids)
-        )
+        if punch_ids:
+            placeholders = ','.join(['%s'] * len(punch_ids))
+            cursor.execute(
+                f'''
+                UPDATE punch_records
+                SET approved = -1, is_urge = 0
+                WHERE id IN ({placeholders}) AND approved = 0
+                ''',
+                tuple(punch_ids)
+            )
+            updated += cursor.rowcount
+
+        if phone_ids:
+            placeholders = ','.join(['%s'] * len(phone_ids))
+            cursor.execute(
+                f'''
+                UPDATE phone_change_requests
+                SET approved = -1, is_urge = 0
+                WHERE id IN ({placeholders}) AND approved = 0
+                ''',
+                tuple(phone_ids)
+            )
+            updated += cursor.rowcount
         conn.commit()
-        return jsonify({'code': 200, 'msg': '驳回成功', 'updated': cursor.rowcount})
+        return jsonify({'code': 200, 'msg': '驳回成功', 'updated': updated})
     finally:
         cursor.close()
         conn.close()
@@ -1134,6 +1379,7 @@ def delete_record(record_id):
 
 # 6. 申请管理员接口
 @app.route('/admin/apply', methods=['POST'])
+@user_required
 def apply_admin():
     print(f"\n=== 收到管理员申请请求 ===", flush=True)
     print(f"请求方法: {request.method}", flush=True)
@@ -1155,6 +1401,10 @@ def apply_admin():
     if not user_id or not username or not reason:
         print(f"参数检查失败: user_id={user_id}, username={username}, reason={reason}", flush=True)
         return jsonify({'code': 400, 'msg': '缺少必要参数'}), 400
+
+    session_user_id = int(g.user_session.get('user_id'))
+    if int(user_id) != session_user_id:
+        return jsonify({'code': 403, 'msg': '无权限代替其他用户申请管理员'}), 403
 
     try:
         conn = get_db_connection()
@@ -1253,7 +1503,11 @@ def approve_admin():
 
 # 9. 获取用户角色接口
 @app.route('/user/role/<int:user_id>', methods=['GET'])
+@user_required
 def get_user_role(user_id):
+    if not _is_self_or_admin(user_id):
+        return jsonify({'code': 403, 'msg': '无权限查看该用户角色'}), 403
+
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT role FROM users WHERE id = %s', (user_id,))
@@ -1276,7 +1530,11 @@ def get_user_role(user_id):
     })
 
 @app.route('/user/profile/<int:user_id>', methods=['PUT'])
+@user_required
 def update_user_profile(user_id):
+    if int(g.user_session.get('user_id') or 0) != int(user_id):
+        return jsonify({'code': 403, 'msg': '无权限修改该用户资料'}), 403
+
     data = request.json or {}
     password = data.get('password')
     username = (data.get('username') or '').strip()
@@ -1308,24 +1566,87 @@ def update_user_profile(user_id):
         cursor.close()
         conn.close()
 
+@app.route('/user/phone/<int:user_id>', methods=['PUT'])
+@user_required
+def update_user_phone(user_id):
+    if int(g.user_session.get('user_id') or 0) != int(user_id):
+        return jsonify({'code': 403, 'msg': '无权限修改该用户手机号'}), 403
+
+    data = request.json or {}
+    password = data.get('password')
+    phone = str(data.get('phone') or '').strip()
+
+    if not password:
+        return jsonify({'code': 400, 'msg': '缺少密码'}), 400
+    if not phone:
+        return jsonify({'code': 400, 'msg': '手机号不能为空'}), 400
+    if not re.fullmatch(r'\d{11}', phone):
+        return jsonify({'code': 400, 'msg': '手机号格式不正确，必须为 11 位数字'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT id, username, phone, password FROM users WHERE id = %s', (user_id,))
+        user = cursor.fetchone()
+        if not user or not _verify_password_and_maybe_upgrade(user, password):
+            return jsonify({'code': 400, 'msg': '密码错误'}), 400
+        if phone == str(user.get('phone') or '').strip():
+            return jsonify({'code': 400, 'msg': '新手机号不能与当前手机号相同'}), 400
+
+        cursor.execute(
+            '''
+            SELECT id
+            FROM phone_change_requests
+            WHERE user_id = %s AND approved = 0
+            ORDER BY id DESC
+            LIMIT 1
+            ''',
+            (user_id,)
+        )
+        pending = cursor.fetchone()
+        if pending:
+            return jsonify({'code': 400, 'msg': '您已有待审批的手机号修改申请，请先等待处理'}), 400
+
+        cursor.execute(
+            '''
+            INSERT INTO phone_change_requests (user_id, username, current_phone, requested_phone)
+            VALUES (%s, %s, %s, %s)
+            ''',
+            (user_id, user.get('username') or '', user.get('phone') or '', phone)
+        )
+        conn.commit()
+        return jsonify({'code': 200, 'msg': '手机号修改申请已提交，请等待管理员审批', 'requested_phone': phone})
+    finally:
+        cursor.close()
+        conn.close()
+
 @app.route('/user/password/<int:user_id>', methods=['PUT'])
+@user_required
 def update_user_password(user_id):
+    if int(g.user_session.get('user_id') or 0) != int(user_id):
+        return jsonify({'code': 403, 'msg': '无权限修改该用户密码'}), 403
+
     data = request.json or {}
     old_password = data.get('old_password')
     new_password = data.get('new_password')
 
     if not old_password or not new_password:
         return jsonify({'code': 400, 'msg': '旧密码和新密码不能为空'}), 400
-    if len(str(new_password)) < 6:
-        return jsonify({'code': 400, 'msg': '新密码至少6位'}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('SELECT id, password FROM users WHERE id = %s', (user_id,))
+        cursor.execute(
+            'SELECT id, username, nickname, student_no, phone, class_name, department, password FROM users WHERE id = %s',
+            (user_id,)
+        )
         user = cursor.fetchone()
         if not user or not _verify_password_and_maybe_upgrade(user, old_password):
-            return jsonify({'code': 401, 'msg': '旧密码错误'}), 401
+            return jsonify({'code': 400, 'msg': '旧密码错误'}), 400
+
+        password_error = _validate_password_policy(user, new_password)
+        if password_error:
+            return jsonify({'code': 400, 'msg': password_error}), 400
 
         cursor.execute('UPDATE users SET password = %s WHERE id = %s', (generate_password_hash(new_password), user_id))
         conn.commit()
@@ -1348,13 +1669,15 @@ if __name__ == '__main__':
             print(f"  {rule.methods} {rule.endpoint} {rule.rule}", flush=True)
         print("==================\n", flush=True)
     port = int(os.getenv('PORT') or 5000)
+    host = (os.getenv('FLASK_HOST') or '0.0.0.0').strip()
     debug = _get_bool_env('FLASK_DEBUG', '1')
     logger.info(
-        "starting server port=%s debug=%s db_host=%s db_name=%s request_log=%s",
+        "starting server host=%s port=%s debug=%s db_host=%s db_name=%s request_log=%s",
+        host,
         port,
         debug,
         DB_CONFIG.get('host'),
         DB_CONFIG.get('database'),
         _request_log_enabled(),
     )
-    app.run(debug=debug, port=port)
+    app.run(host=host, debug=debug, port=port)

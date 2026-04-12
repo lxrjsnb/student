@@ -44,12 +44,21 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--app-bg);
   color: var(--text);
+  touch-action: manipulation;
+  overscroll-behavior-y: none;
 }
 
 button,
@@ -59,14 +68,12 @@ input {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 a {
   color: inherit;
-}
-
-#app {
-  min-height: 100vh;
+  touch-action: manipulation;
 }
 
 .bgFX {

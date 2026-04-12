@@ -2,10 +2,12 @@
   <div v-if="open" class="wrap" role="dialog" aria-modal="true" @click.self="$emit('close')">
     <div class="panel">
       <div class="head">
-        <button class="navBtn" type="button" :disabled="loading" @click="prevMonth" aria-label="上个月">‹</button>
-        <h3 class="title">{{ monthLabel }}</h3>
-        <div class="headRight">
+        <div class="monthSwitch">
+          <button class="navBtn" type="button" :disabled="loading" @click="prevMonth" aria-label="上个月">‹</button>
+          <h3 class="title">{{ monthLabel }}</h3>
           <button class="navBtn" type="button" :disabled="loading" @click="nextMonth" aria-label="下个月">›</button>
+        </div>
+        <div class="headRight">
           <button class="x" type="button" @click="$emit('close')" aria-label="关闭">✕</button>
         </div>
       </div>
@@ -13,6 +15,13 @@
       <div class="body">
         <div v-if="loading" class="empty">加载中…</div>
         <template v-else>
+          <div class="stats" aria-label="月度统计">
+            <div v-for="item in monthStats" :key="item.label" class="stat">
+              <div class="statValue">{{ item.value }}</div>
+              <div class="statLabel">{{ item.label }}</div>
+            </div>
+          </div>
+
           <div class="week">
             <span v-for="w in weekDays" :key="w" class="weekCell">{{ w }}</span>
           </div>
@@ -25,13 +34,21 @@
               :class="{
                 'day--muted': !cell.inMonth,
                 'day--today': cell.isToday,
-                'day--has': cell.count > 0
+                'day--has': cell.hasAny,
+                'day--selected': selected?.key === cell.key
               }"
               type="button"
               @click="openDay(cell)"
             >
               <span class="num">{{ cell.day }}</span>
-              <span v-if="cell.count > 0" class="badge" aria-label="当日打卡次数">{{ cell.count }}</span>
+              <span v-if="cell.marks.length" class="marks" aria-label="当日记录状态">
+                <span
+                  v-for="mark in cell.marks"
+                  :key="mark"
+                  class="mark"
+                  :class="`mark--${mark}`"
+                ></span>
+              </span>
             </button>
           </div>
 
@@ -41,9 +58,10 @@
               <button class="detailClose" type="button" @click="selected = null" aria-label="关闭详情">✕</button>
             </div>
             <ul class="detailList">
-              <li v-for="(t, idx) in selected.times" :key="idx" class="detailRow">
-                <span class="detailDot" aria-hidden="true"></span>
-                <span class="detailTime">{{ t }}</span>
+              <li v-for="(row, idx) in selected.times" :key="idx" class="detailRow">
+                <span class="detailDot" :class="`detailDot--${row.statusKey}`" aria-hidden="true"></span>
+                <span class="detailTime">{{ row.time }}</span>
+                <span class="detailStatus" :class="`detailStatus--${row.statusKey}`">{{ row.statusText }}</span>
               </li>
             </ul>
           </div>
@@ -66,7 +84,7 @@ const props = defineProps({
 
 defineEmits(['close'])
 
-const weekDays = ['一', '二', '三', '四', '五', '六', '日']
+const weekDays = ['日', '一', '二', '三', '四', '五', '六']
 const viewDate = ref(new Date())
 const selected = ref(null)
 
@@ -88,6 +106,28 @@ const monthLabel = computed(() => {
   return `${y} 年 ${String(m).padStart(2, '0')} 月`
 })
 
+const monthRecordKeys = computed(() => {
+  const y = viewDate.value.getFullYear()
+  const m = viewDate.value.getMonth()
+  const prefix = `${y}-${String(m + 1).padStart(2, '0')}-`
+  return [...recordsByDay.value.keys()].filter((key) => key.startsWith(prefix))
+})
+
+const monthStats = computed(() => {
+  const monthKeys = monthRecordKeys.value
+  const monthRows = monthKeys.flatMap((key) => recordsByDay.value.get(key) || [])
+  const monthRecordCount = monthRows.filter((row) => Number(row?.approved) === 1).length
+  const activeDays = monthKeys.length
+  const pendingCount = monthRows.filter((row) => Number(row?.approved) === 0).length
+  const rejectedCount = monthRows.filter((row) => Number(row?.approved) === -1).length
+  return [
+    { label: '本月记录', value: monthRecordCount },
+    { label: '打卡天数', value: activeDays },
+    { label: '待审批', value: pendingCount },
+    { label: '被驳回', value: rejectedCount }
+  ]
+})
+
 const recordsByDay = computed(() => {
   const map = new Map()
   for (const r of props.records || []) {
@@ -102,7 +142,12 @@ const recordsByDay = computed(() => {
       : (extractTime(raw) || extractTime(String(r?.punch_time || '')) || '-')
 
     const arr = map.get(key) || []
-    arr.push({ raw: String(raw || ''), time, ts: date ? date.getTime() : Number.NaN })
+    arr.push({
+      raw: String(raw || ''),
+      time,
+      ts: date ? date.getTime() : Number.NaN,
+      approved: Number(r?.approved ?? 1)
+    })
     map.set(key, arr)
   }
   for (const arr of map.values()) {
@@ -120,7 +165,7 @@ const calendarCells = computed(() => {
   const y = viewDate.value.getFullYear()
   const m = viewDate.value.getMonth()
   const first = new Date(y, m, 1)
-  const startIndex = (first.getDay() + 6) % 7 // Monday = 0
+  const startIndex = first.getDay()
   const start = new Date(y, m, 1 - startIndex)
   const todayKey = toKey(new Date())
 
@@ -130,13 +175,21 @@ const calendarCells = computed(() => {
     d.setDate(start.getDate() + i)
     const key = toKey(d)
     const inMonth = d.getMonth() === m
-    const times = recordsByDay.value.get(key) || []
+    const rows = recordsByDay.value.get(key) || []
+    const marks = []
+    if (inMonth) {
+      if (rows.some((row) => Number(row?.approved) === -1)) marks.push('rejected')
+      if (rows.some((row) => Number(row?.approved) === 0)) marks.push('pending')
+      if (rows.some((row) => Number(row?.approved) === 1)) marks.push('approved')
+    }
     cells.push({
       key,
       inMonth,
       isToday: key === todayKey,
       day: d.getDate(),
-      count: inMonth ? times.length : 0
+      count: inMonth ? rows.length : 0,
+      hasAny: inMonth ? rows.length > 0 : false,
+      marks
     })
   }
   return cells
@@ -158,13 +211,31 @@ function nextMonth() {
 
 function openDay(cell) {
   if (!cell?.count) return
-  const times = (recordsByDay.value.get(cell.key) || []).map((t) => t.time)
+  const times = (recordsByDay.value.get(cell.key) || []).map((row) => ({
+    time: row.time,
+    statusKey: getStatusKey(row.approved),
+    statusText: getStatusText(row.approved)
+  }))
   const pretty = cell.key.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1年$2月$3日')
   selected.value = {
     key: cell.key,
-    label: `${pretty} · 打卡详情`,
+    label: `${pretty} · 当日记录`,
     times
   }
+}
+
+function getStatusKey(approved) {
+  const value = Number(approved ?? 0)
+  if (value === -1) return 'rejected'
+  if (value === 0) return 'pending'
+  return 'approved'
+}
+
+function getStatusText(approved) {
+  const key = getStatusKey(approved)
+  if (key === 'rejected') return '已驳回'
+  if (key === 'pending') return '待审批'
+  return '已通过'
 }
 
 function toKey(date) {
@@ -255,7 +326,7 @@ function parseDbDate(text) {
 .wrap {
   position: fixed;
   inset: 0;
-  background: rgba(2, 6, 23, 0.35);
+  background: rgba(15, 23, 42, 0.22);
   display: grid;
   place-items: center;
   padding: 18px;
@@ -264,12 +335,10 @@ function parseDbDate(text) {
 
 .panel {
   width: min(520px, 100%);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.28);
+  border-radius: 0;
+  background: #f7f4ee;
+  border: 1px solid rgba(24, 33, 47, 0.04);
+  box-shadow: 0 18px 54px rgba(52, 71, 97, 0.14);
   overflow: hidden;
 }
 
@@ -278,16 +347,24 @@ function parseDbDate(text) {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid rgba(24, 33, 47, 0.06);
+}
+
+.monthSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 900;
-  color: rgba(15, 23, 42, 0.88);
-  letter-spacing: 0.2px;
+  min-width: 124px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: #2b3542;
+  letter-spacing: 0.01em;
 }
 
 .headRight {
@@ -298,13 +375,13 @@ function parseDbDate(text) {
 
 .navBtn {
   border: 0;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  width: 32px;
-  height: 32px;
-  border-radius: 12px;
-  color: rgba(15, 23, 42, 0.7);
+  background: transparent;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: rgba(43, 53, 66, 0.78);
   font-weight: 900;
+  font-size: 20px;
 }
 
 .navBtn:disabled {
@@ -314,17 +391,16 @@ function parseDbDate(text) {
 
 .x {
   border: 0;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: transparent;
   width: 32px;
   height: 32px;
-  border-radius: 12px;
-  color: rgba(15, 23, 42, 0.7);
+  border-radius: 999px;
+  color: rgba(43, 53, 66, 0.72);
 }
 
 .body {
-  padding: 12px 16px 16px;
-  max-height: min(64vh, 520px);
+  padding: 10px 14px 18px;
+  max-height: min(76vh, 680px);
   overflow: auto;
 }
 
@@ -335,86 +411,122 @@ function parseDbDate(text) {
   font-size: 13px;
 }
 
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.stat {
+  padding: 10px 6px 8px;
+  text-align: center;
+}
+
+.statValue {
+  font-size: 23px;
+  line-height: 1;
+  font-weight: 800;
+  color: #d75f36;
+}
+
+.statLabel {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(43, 53, 66, 0.68);
+  font-weight: 600;
+}
+
 .week {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
 .weekCell {
   text-align: center;
   font-size: 12px;
-  font-weight: 800;
-  color: rgba(15, 23, 42, 0.55);
+  font-weight: 700;
+  color: rgba(43, 53, 66, 0.66);
+  padding: 6px 0;
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
+  gap: 4px 2px;
 }
 
 .day {
   position: relative;
-  height: 44px;
-  border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  background: rgba(255, 255, 255, 0.62);
-  color: rgba(15, 23, 42, 0.82);
+  min-height: 58px;
+  border-radius: 18px;
+  border: 0;
+  background: transparent;
+  color: rgba(43, 53, 66, 0.88);
   display: grid;
-  place-items: center;
-  padding: 0;
-  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  align-content: start;
+  justify-items: center;
+  padding: 8px 0 6px;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
 .day:hover {
-  transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(24, 59, 77, 0.04);
 }
 
 .day--muted {
-  opacity: 0.45;
+  color: rgba(43, 53, 66, 0.32);
 }
 
 .day--today {
-  border-color: rgba(0, 168, 204, 0.45);
-  box-shadow: 0 0 0 4px rgba(0, 168, 204, 0.1);
+  background: rgba(96, 196, 183, 0.16);
 }
 
 .day--has {
-  border-color: rgba(0, 168, 204, 0.22);
+  color: #2b3542;
+}
+
+.day--selected,
+.day--today.day--selected {
+  background: rgba(96, 196, 183, 0.22);
 }
 
 .num {
-  font-size: 13px;
+  font-size: 22px;
   font-weight: 800;
 }
 
-.badge {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
+.marks {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.mark {
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
-  background: rgba(0, 168, 204, 0.92);
-  color: white;
-  font-size: 11px;
-  font-weight: 900;
-  box-shadow: 0 10px 18px rgba(0, 168, 204, 0.22);
+}
+
+.mark--rejected {
+  background: #ee4f3a;
+}
+
+.mark--pending {
+  background: #d8a53a;
+}
+
+.mark--approved {
+  background: #60c4b7;
 }
 
 .detail {
-  margin-top: 12px;
-  border-radius: 18px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  margin-top: 16px;
+  border-top: 1px solid rgba(24, 33, 47, 0.08);
+  padding-top: 14px;
 }
 
 .detailHead {
@@ -427,19 +539,18 @@ function parseDbDate(text) {
 
 .detailTitle {
   margin: 0;
-  font-size: 13px;
-  font-weight: 900;
-  color: rgba(15, 23, 42, 0.84);
+  font-size: 15px;
+  font-weight: 800;
+  color: rgba(43, 53, 66, 0.88);
 }
 
 .detailClose {
   border: 0;
   width: 30px;
   height: 30px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: rgba(15, 23, 42, 0.65);
+  border-radius: 999px;
+  background: rgba(24, 59, 77, 0.06);
+  color: rgba(43, 53, 66, 0.68);
 }
 
 .detailList {
@@ -454,22 +565,83 @@ function parseDbDate(text) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 10px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 12px 4px;
+  border-bottom: 1px dashed rgba(24, 33, 47, 0.08);
 }
 
 .detailDot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: rgba(0, 168, 204, 0.95);
-  box-shadow: 0 0 0 6px rgba(0, 168, 204, 0.12);
+  background: #60c4b7;
 }
 
 .detailTime {
-  font-size: 13px;
-  color: rgba(15, 23, 42, 0.78);
+  font-size: 14px;
+  color: rgba(43, 53, 66, 0.82);
+}
+
+.detailStatus {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.detailDot--rejected,
+.detailStatus--rejected {
+  color: #ee4f3a;
+  background-color: #ee4f3a;
+}
+
+.detailDot--pending,
+.detailStatus--pending {
+  color: #d8a53a;
+  background-color: #d8a53a;
+}
+
+.detailDot--approved,
+.detailStatus--approved {
+  color: #60c4b7;
+  background-color: #60c4b7;
+}
+
+.detailDot--rejected,
+.detailDot--pending,
+.detailDot--approved {
+  box-shadow: none;
+}
+
+.detailStatus--rejected,
+.detailStatus--pending,
+.detailStatus--approved {
+  background: transparent;
+}
+
+@media (max-width: 640px) {
+  .wrap {
+    padding: 0;
+    align-items: end;
+  }
+
+  .panel {
+    width: 100%;
+    min-height: 78vh;
+  }
+
+  .stats {
+    gap: 4px;
+  }
+
+  .statValue {
+    font-size: 20px;
+  }
+
+  .day {
+    min-height: 54px;
+  }
+
+  .num {
+    font-size: 20px;
+  }
 }
 </style>
