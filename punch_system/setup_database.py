@@ -48,7 +48,7 @@ def ensure_users_table(cursor):
             nickname VARCHAR(50) DEFAULT '',
             username VARCHAR(50) NOT NULL,
             password VARCHAR(255) NOT NULL,
-            student_no VARCHAR(32) DEFAULT '',
+            student_no VARCHAR(32) NULL DEFAULT NULL,
             class_name VARCHAR(64) DEFAULT '',
             department VARCHAR(64) DEFAULT '',
             phone VARCHAR(32) DEFAULT '',
@@ -58,7 +58,8 @@ def ensure_users_table(cursor):
             last_login_at DATETIME NULL DEFAULT NULL,
             last_logout_at DATETIME NULL DEFAULT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_users_username (username)
+            UNIQUE KEY uniq_users_username (username),
+            UNIQUE KEY uniq_users_student_no (student_no)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         '''
     )
@@ -278,7 +279,7 @@ def setup_database():
             print("✓ users 表已有 nickname 字段")
 
         if not column_exists('student_no'):
-            cursor.execute("ALTER TABLE users ADD COLUMN student_no VARCHAR(32) DEFAULT '' AFTER password")
+            cursor.execute("ALTER TABLE users ADD COLUMN student_no VARCHAR(32) NULL DEFAULT NULL AFTER password")
             print("✓ users 表添加 student_no 字段成功")
         else:
             print("✓ users 表已有 student_no 字段")
@@ -339,7 +340,7 @@ def setup_database():
                   MODIFY COLUMN nickname VARCHAR(50) DEFAULT '' AFTER id,
                   MODIFY COLUMN username VARCHAR(50) NOT NULL AFTER nickname,
                   MODIFY COLUMN password VARCHAR(255) NOT NULL AFTER username,
-                  MODIFY COLUMN student_no VARCHAR(32) DEFAULT '' AFTER password,
+                  MODIFY COLUMN student_no VARCHAR(32) NULL DEFAULT NULL AFTER password,
                   MODIFY COLUMN class_name VARCHAR(64) DEFAULT '' AFTER student_no,
                   MODIFY COLUMN department VARCHAR(64) DEFAULT '' AFTER class_name,
                   MODIFY COLUMN phone VARCHAR(32) DEFAULT '' AFTER department,
@@ -359,6 +360,13 @@ def setup_database():
             print("✓ users 表添加 username 唯一索引成功")
         except Exception:
             print("✓ users 表已有 username 唯一索引（或已存在同名索引）")
+
+        try:
+            cursor.execute("UPDATE users SET student_no = NULL WHERE student_no IS NOT NULL AND TRIM(student_no) = ''")
+            cursor.execute('CREATE UNIQUE INDEX uniq_users_student_no ON users (student_no)')
+            print("✓ users 表添加 student_no 唯一索引成功")
+        except Exception as e:
+            print(f"⚠ users 表 student_no 唯一索引跳过: {e}")
         
         # 4. 保持角色字段与当前权限定义一致，不再强制覆盖 admin 用户角色
         print("✓ 跳过 admin 用户角色强制覆盖")

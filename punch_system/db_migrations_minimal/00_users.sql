@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
   nickname VARCHAR(50) DEFAULT '',
   username VARCHAR(50) NOT NULL,
   password VARCHAR(255) NOT NULL,
-  student_no VARCHAR(32) DEFAULT '',
+  student_no VARCHAR(32) NULL DEFAULT NULL,
   class_name VARCHAR(64) DEFAULT '',
   department VARCHAR(64) DEFAULT '',
   phone VARCHAR(32) DEFAULT '',
@@ -13,5 +13,6 @@ CREATE TABLE IF NOT EXISTS users (
   last_logout_at DATETIME NULL DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   role ENUM('user', 'admin', 'super_admin') DEFAULT 'user',
-  UNIQUE KEY uniq_users_username (username)
+  UNIQUE KEY uniq_users_username (username),
+  UNIQUE KEY uniq_users_student_no (student_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

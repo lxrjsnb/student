@@ -204,7 +204,7 @@ def _ensure_schema_once():
             )
             _ensure_users_column(
                 'student_no',
-                "ALTER TABLE users ADD COLUMN student_no VARCHAR(32) DEFAULT ''"
+                "ALTER TABLE users ADD COLUMN student_no VARCHAR(32) NULL DEFAULT NULL"
             )
             _ensure_users_column(
                 'class_name',
@@ -947,18 +947,23 @@ def register():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
-    username = data.get('username')
+    student_no = str(data.get('student_no') or data.get('username') or '').strip()
     password = data.get('password')
 
-    if not username or not password:
-        return jsonify({'code': 400, 'msg': '用户名和密码不能为空'}), 400
+    if not student_no or not password:
+        return jsonify({'code': 400, 'msg': '学号和密码不能为空'}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE username = %s LIMIT 1', (username,))
-    user = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    try:
+        cursor.execute('SELECT * FROM users WHERE student_no = %s LIMIT 2', (student_no,))
+        matches = cursor.fetchall()
+        if len(matches) > 1:
+            return jsonify({'code': 400, 'msg': '该学号存在重复，请联系管理员处理'}), 400
+        user = matches[0] if matches else None
+    finally:
+        cursor.close()
+        conn.close()
 
     if user and _verify_password_and_maybe_upgrade(user, password):
         role_info = _get_role_info(user['id'])
@@ -1000,7 +1005,7 @@ def login():
             'session_ttl_days': SESSION_TTL_DAYS if session_token else None
         })
     else:
-        return jsonify({'code': 401, 'msg': '用户名或密码错误'}), 401
+        return jsonify({'code': 401, 'msg': '学号或密码错误'}), 401
 
 # 3. 打卡接口
 @app.route('/punch', methods=['POST'])

@@ -69,8 +69,8 @@ adminApi.interceptors.response.use((res) => {
   return res
 })
 
-export async function login({ username, password }) {
-  const res = await api.post('/login', { username, password })
+export async function login({ studentNo, password }) {
+  const res = await api.post('/login', { student_no: studentNo, password })
   return res.data
 }
 

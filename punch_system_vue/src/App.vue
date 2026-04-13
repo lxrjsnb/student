@@ -9,7 +9,7 @@
           :message="authMessage"
           :message-type="authMessageType"
           :api-base-url="apiBaseUrl"
-          :default-username="rememberedUsername"
+          :default-student-no="rememberedLoginId"
           @auth="handleAuth"
           @goAdmin="goAdminLogin"
         />
@@ -206,6 +206,7 @@ import { getNextQuote } from './lib/quotes'
 
 const STORAGE_KEY_USER = 'punch_user'
 const STORAGE_KEY_USERNAME = 'punch_username'
+const STORAGE_KEY_LOGIN_ID = 'punch_login_id'
 const STORAGE_KEY_ADMIN_TOKEN = 'punch_admin_token'
 
 const LOGIN_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -220,7 +221,7 @@ const currentTime = computed(() => now.value.toLocaleTimeString('zh-CN', { hour1
 const authMessage = ref('')
 const authMessageType = ref('info')
 const authLoading = ref(false)
-const rememberedUsername = ref(localStorage.getItem(STORAGE_KEY_USERNAME) || '')
+const rememberedLoginId = ref(localStorage.getItem(STORAGE_KEY_LOGIN_ID) || localStorage.getItem(STORAGE_KEY_USERNAME) || '')
 
 const currentUser = ref(loadUserFromStorage())
 const view = ref('home')
@@ -436,26 +437,35 @@ function setFilterEnd(value) {
 function setUser(user, remember) {
   console.log('setUser 被调用，传入的 user:', user)
   console.log('setUser 前，currentUser.value:', currentUser.value)
-  currentUser.value = { ...user }
+  const loginId = user.loginId || user.studentNo || user.username || ''
+  currentUser.value = { ...user, loginId }
   console.log('setUser 后，currentUser.value:', currentUser.value)
   if (remember) {
-    const toStore = { ...user }
+    const toStore = { ...user, loginId }
     if (!toStore._expiresAt) toStore._expiresAt = Date.now() + LOGIN_TTL_MS
     localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(toStore))
-    localStorage.setItem(STORAGE_KEY_USERNAME, toStore.username)
+    if (loginId) {
+      localStorage.setItem(STORAGE_KEY_LOGIN_ID, loginId)
+      localStorage.setItem(STORAGE_KEY_USERNAME, loginId)
+    }
   } else {
     localStorage.removeItem(STORAGE_KEY_USER)
-    localStorage.setItem(STORAGE_KEY_USERNAME, user.username)
+    if (loginId) {
+      localStorage.setItem(STORAGE_KEY_LOGIN_ID, loginId)
+      localStorage.setItem(STORAGE_KEY_USERNAME, loginId)
+    }
   }
-  rememberedUsername.value = user.username
+  rememberedLoginId.value = loginId
 }
 
 function applyUserPatch(patch) {
   if (!currentUser.value) return
   currentUser.value = { ...currentUser.value, ...patch }
-  if (patch?.username) {
-    rememberedUsername.value = patch.username
-    localStorage.setItem(STORAGE_KEY_USERNAME, patch.username)
+  const loginId = currentUser.value.loginId || currentUser.value.studentNo || currentUser.value.username || ''
+  if (loginId) {
+    rememberedLoginId.value = loginId
+    localStorage.setItem(STORAGE_KEY_LOGIN_ID, loginId)
+    localStorage.setItem(STORAGE_KEY_USERNAME, loginId)
   }
   const stored = localStorage.getItem(STORAGE_KEY_USER)
   if (stored) localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(currentUser.value))
@@ -532,10 +542,10 @@ async function handleAuth(payload) {
   authMessage.value = ''
   authMessageType.value = 'info'
 
-  const username = payload.username?.trim()
+  const studentNo = payload.studentNo?.trim()
   const password = payload.password ?? ''
-  if (!username || !password) {
-    authMessage.value = '用户名和密码不能为空。'
+  if (!studentNo || !password) {
+    authMessage.value = '学号和密码不能为空。'
     authMessageType.value = 'error'
     return
   }
@@ -543,7 +553,7 @@ async function handleAuth(payload) {
   authLoading.value = true
   console.log('开始登录请求')
   try {
-    const data = await login({ username, password })
+    const data = await login({ studentNo, password })
     console.log('登录响应:', data)
     if (data.code === 200) {
       console.log('登录成功，用户数据:', { id: data.user_id, username: data.username, role: data.role })
@@ -560,6 +570,7 @@ async function handleAuth(payload) {
         id: data.user_id,
         nickname: data.nickname || data.username,
         username: data.username,
+        loginId: studentNo,
         studentNo: data.student_no || '',
         phone: data.phone || '',
         department: data.department || '',

@@ -6,17 +6,17 @@
           <span class="title-main">迹刻</span>
           <span class="title-sub">- 即刻打卡</span>
         </h2>
-        <p class="subtitle">请输入账号和密码继续使用</p>
+        <p class="subtitle">请输入学号和密码继续使用</p>
       </div>
 
       <form class="form" @submit.prevent="onSubmit">
         <label class="field">
-          <span>账号</span>
+          <span>学号</span>
           <input
-            v-model.trim="username"
+            v-model.trim="studentNo"
             type="text"
             autocomplete="username"
-            placeholder="请输入账号"
+            placeholder="请输入学号"
             :disabled="loading"
             required
           />
@@ -56,17 +56,17 @@ const props = defineProps({
   message: { type: String, default: '' },
   messageType: { type: String, default: 'info' },
   apiBaseUrl: { type: String, required: true },
-  defaultUsername: { type: String, default: '' }
+  defaultStudentNo: { type: String, default: '' }
 })
 
 const emit = defineEmits(['auth', 'goAdmin'])
 
-const username = ref(props.defaultUsername)
+const studentNo = ref(props.defaultStudentNo)
 const password = ref('')
 
 const inlineLoginError = computed(() => {
   if (props.messageType !== 'error') return ''
-  return '账号或密码错误'
+  return '学号或密码错误'
 })
 
 const showBottomAlert = computed(() => {
@@ -76,7 +76,7 @@ const showBottomAlert = computed(() => {
 
 function onSubmit() {
   emit('auth', {
-    username: username.value,
+    studentNo: studentNo.value,
     password: password.value,
     remember: true
   })
