@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import secrets
@@ -679,6 +680,90 @@ def _get_user_role(user_id):
     role_info = _get_role_info(user_id)
     return role_info.get('effective_role')
 
+def _get_admin_scope(cursor=None):
+    session = getattr(g, 'user_session', None) or {}
+    current_user_id = int(session.get('user_id') or 0)
+    role = getattr(g, 'user_role', None) or _get_user_role(current_user_id)
+    scope = {
+        'user_id': current_user_id,
+        'role': role or 'user',
+        'restricted': (role == 'admin'),
+        'department': ''
+    }
+    if not current_user_id or role != 'admin':
+        return scope
+
+    own_conn = None
+    try:
+        if cursor is None:
+            own_conn = get_db_connection()
+            cursor = own_conn.cursor()
+        cursor.execute('SELECT department FROM users WHERE id = %s LIMIT 1', (current_user_id,))
+        user_row = cursor.fetchone() or {}
+        scope['department'] = (user_row.get('department') or '').strip()
+        return scope
+    finally:
+        if own_conn:
+            cursor.close()
+            own_conn.close()
+
+def _apply_department_scope(clauses, params, column_name='u.department', cursor=None):
+    scope = _get_admin_scope(cursor=cursor)
+    if scope.get('restricted'):
+        clauses.append(f"COALESCE({column_name}, '') = %s")
+        params.append(scope.get('department') or '')
+    return scope
+
+def _get_accessible_punch_record_ids(cursor, record_ids, pending_only=False, member_only=False):
+    record_ids = sorted({int(record_id) for record_id in (record_ids or []) if int(record_id or 0) > 0})
+    if not record_ids:
+        return []
+
+    placeholders = ','.join(['%s'] * len(record_ids))
+    clauses = [f'pr.id IN ({placeholders})']
+    params = list(record_ids)
+    if pending_only:
+        clauses.append('pr.approved = 0')
+    if member_only:
+        clauses.append('IFNULL(u.is_admin, 0) = 0')
+    _apply_department_scope(clauses, params, column_name='u.department', cursor=cursor)
+
+    cursor.execute(
+        f'''
+        SELECT pr.id
+        FROM punch_records pr
+        JOIN users u ON u.id = pr.user_id
+        WHERE {' AND '.join(clauses)}
+        ''',
+        tuple(params)
+    )
+    rows = cursor.fetchall() or []
+    return [int(row.get('id') or 0) for row in rows if int(row.get('id') or 0) > 0]
+
+def _get_accessible_phone_request_ids(cursor, request_ids, pending_only=False):
+    request_ids = sorted({int(request_id) for request_id in (request_ids or []) if int(request_id or 0) > 0})
+    if not request_ids:
+        return []
+
+    placeholders = ','.join(['%s'] * len(request_ids))
+    clauses = [f'pcr.id IN ({placeholders})', 'IFNULL(u.is_admin, 0) = 0']
+    params = list(request_ids)
+    if pending_only:
+        clauses.append('pcr.approved = 0')
+    _apply_department_scope(clauses, params, column_name='u.department', cursor=cursor)
+
+    cursor.execute(
+        f'''
+        SELECT pcr.id
+        FROM phone_change_requests pcr
+        JOIN users u ON u.id = pcr.user_id
+        WHERE {' AND '.join(clauses)}
+        ''',
+        tuple(params)
+    )
+    rows = cursor.fetchall() or []
+    return [int(row.get('id') or 0) for row in rows if int(row.get('id') or 0) > 0]
+
 def _get_base_user_role(user_id, cursor=None):
     if not user_id:
         return None
@@ -928,18 +1013,42 @@ def punch():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # 检查用户最后一次打卡时间
-    cursor.execute('SELECT punch_time FROM punch_records WHERE user_id = %s ORDER BY punch_time DESC LIMIT 1', (user_id,))
+    cursor.execute('SELECT NOW() AS db_now')
+    db_now_row = cursor.fetchone() or {}
+    current_time = db_now_row.get('db_now') or datetime.now()
+
+    # 用数据库时间计算限流，避免应用容器和 MySQL 时区不一致导致误判
+    cursor.execute(
+        '''
+        SELECT
+            punch_time,
+            TIMESTAMPDIFF(MICROSECOND, punch_time, NOW()) AS elapsed_us
+        FROM punch_records
+        WHERE user_id = %s
+        ORDER BY punch_time DESC
+        LIMIT 1
+        ''',
+        (user_id,)
+    )
     last_punch = cursor.fetchone()
-    
-    current_time = datetime.now()
     
     if last_punch:
         last_time = last_punch['punch_time']
-        time_diff = (current_time - last_time).total_seconds()
+        elapsed_us = int(last_punch.get('elapsed_us') or 0)
+        time_diff = elapsed_us / 1000000
+
+        if time_diff < 0:
+            logger.warning(
+                "punch_time is in the future user_id=%s last_time=%s db_current_time=%s skew_seconds=%.1f",
+                user_id,
+                last_time,
+                current_time,
+                -time_diff,
+            )
+            time_diff = 0
         
         if time_diff < 10:
-            remaining = int(10 - time_diff)
+            remaining = max(1, math.ceil(10 - time_diff))
             return jsonify({'code': 429, 'msg': f'打卡太频繁，请等待 {remaining} 秒后再试'}), 429
     
     # 插入打卡记录
@@ -1567,14 +1676,27 @@ def get_all_users():
     except Exception as e:
         logger.error(f"同步 users.is_online 失败（可能无 user_sessions 表）: {e}")
 
-    cursor.execute(
-        'SELECT id, nickname, username, role, is_online, last_login_at, last_logout_at, created_at FROM users ORDER BY id'
-    )
-    users = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    return jsonify({'code': 200, 'data': users})
+    try:
+        clauses = []
+        params = []
+        scope = _apply_department_scope(clauses, params, column_name='users.department', cursor=cursor)
+        if scope.get('restricted'):
+            clauses.append('IFNULL(users.is_admin, 0) = 0')
+        where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ''
+        cursor.execute(
+            f'''
+            SELECT id, nickname, username, student_no, department, role, is_online, last_login_at, last_logout_at, created_at
+            FROM users
+            {where_sql}
+            ORDER BY id
+            ''',
+            tuple(params)
+        )
+        users = cursor.fetchall() or []
+        return jsonify({'code': 200, 'data': users})
+    finally:
+        cursor.close()
+        conn.close()
 
 # 7. 获取所有打卡记录（管理员）
 @app.route('/admin/records', methods=['GET'])
@@ -1583,29 +1705,40 @@ def get_all_records():
     _ensure_punch_records_schema_once()
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT
-            pr.id,
-            pr.user_id,
-            u.username,
-            u.student_no,
-            u.department,
-            pr.punch_time,
-            pr.approved,
-            pr.is_urge,
-            pr.approved_by,
-            pr.approved_at,
-            approver.username AS approved_by_username
-        FROM punch_records pr
-        JOIN users u ON pr.user_id = u.id
-        LEFT JOIN users approver ON approver.id = pr.approved_by
-        ORDER BY pr.punch_time DESC
-    ''')
-    records = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    return jsonify({'code': 200, 'data': records})
+    try:
+        clauses = []
+        params = []
+        scope = _apply_department_scope(clauses, params, column_name='u.department', cursor=cursor)
+        if scope.get('restricted'):
+            clauses.append('IFNULL(u.is_admin, 0) = 0')
+        where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ''
+        cursor.execute(
+            f'''
+            SELECT
+                pr.id,
+                pr.user_id,
+                u.username,
+                u.student_no,
+                u.department,
+                pr.punch_time,
+                pr.approved,
+                pr.is_urge,
+                pr.approved_by,
+                pr.approved_at,
+                approver.username AS approved_by_username
+            FROM punch_records pr
+            JOIN users u ON pr.user_id = u.id
+            LEFT JOIN users approver ON approver.id = pr.approved_by
+            {where_sql}
+            ORDER BY pr.punch_time DESC
+            ''',
+            tuple(params)
+        )
+        records = cursor.fetchall() or []
+        return jsonify({'code': 200, 'data': records})
+    finally:
+        cursor.close()
+        conn.close()
 
 # 9. 查询待审批打卡记录（管理员）
 @app.route('/admin/punch-approvals', methods=['GET'])
@@ -1629,6 +1762,7 @@ def admin_get_punch_approvals():
     # 审批界面只处理普通用户（不展示管理员/超级管理员）
     # 兼容旧库：优先依赖 users.is_admin 字段（比 users.role 更稳定）
     clauses.append('IFNULL(u.is_admin, 0) = 0')
+    _apply_department_scope(clauses, params, column_name='u.department')
 
     if status == 'pending':
         clauses.append('pr.approved = 0')
@@ -1703,6 +1837,7 @@ def admin_get_punch_approvals():
 
         phone_clauses = ['IFNULL(u.is_admin, 0) = 0']
         phone_params = []
+        _apply_department_scope(phone_clauses, phone_params, column_name='u.department', cursor=cursor)
         if status == 'pending':
             phone_clauses.append('pcr.approved = 0')
         elif status == 'approved':
@@ -1824,27 +1959,38 @@ def admin_approve_punch_records():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if punch_ids:
-            placeholders = ','.join(['%s'] * len(punch_ids))
+        requested_punch_ids = sorted({int(item_id) for item_id in (punch_ids or []) if int(item_id or 0) > 0})
+        requested_phone_ids = sorted({int(item_id) for item_id in (phone_ids or []) if int(item_id or 0) > 0})
+        allowed_punch_ids = _get_accessible_punch_record_ids(cursor, requested_punch_ids, pending_only=True, member_only=True)
+        allowed_phone_ids = _get_accessible_phone_request_ids(cursor, requested_phone_ids, pending_only=True)
+
+        if len(allowed_punch_ids) != len(requested_punch_ids):
+            return jsonify({'code': 403, 'msg': '存在不属于当前管理范围的打卡记录'}), 403
+
+        if len(allowed_phone_ids) != len(requested_phone_ids):
+            return jsonify({'code': 403, 'msg': '存在不属于当前管理范围的手机号申请'}), 403
+
+        if allowed_punch_ids:
+            placeholders = ','.join(['%s'] * len(allowed_punch_ids))
             cursor.execute(
                 f'''
                 UPDATE punch_records
                 SET approved = 1, is_urge = 0, approved_by = %s, approved_at = NOW()
                 WHERE id IN ({placeholders}) AND approved = 0
                 ''',
-                (approver_id, *tuple(punch_ids))
+                (approver_id, *tuple(allowed_punch_ids))
             )
             updated += cursor.rowcount
 
-        if phone_ids:
-            placeholders = ','.join(['%s'] * len(phone_ids))
+        if allowed_phone_ids:
+            placeholders = ','.join(['%s'] * len(allowed_phone_ids))
             cursor.execute(
                 f'''
                 SELECT id, user_id, requested_phone
                 FROM phone_change_requests
                 WHERE id IN ({placeholders}) AND approved = 0
                 ''',
-                tuple(phone_ids)
+                tuple(allowed_phone_ids)
             )
             phone_rows = cursor.fetchall() or []
             if phone_rows:
@@ -1854,7 +2000,7 @@ def admin_approve_punch_records():
                     SET approved = 1, is_urge = 0
                     WHERE id IN ({placeholders}) AND approved = 0
                     ''',
-                    tuple(phone_ids)
+                    tuple(allowed_phone_ids)
                 )
                 updated += cursor.rowcount
                 for row in phone_rows:
@@ -1890,27 +2036,38 @@ def admin_reject_punch_records():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if punch_ids:
-            placeholders = ','.join(['%s'] * len(punch_ids))
+        requested_punch_ids = sorted({int(item_id) for item_id in (punch_ids or []) if int(item_id or 0) > 0})
+        requested_phone_ids = sorted({int(item_id) for item_id in (phone_ids or []) if int(item_id or 0) > 0})
+        allowed_punch_ids = _get_accessible_punch_record_ids(cursor, requested_punch_ids, pending_only=True, member_only=True)
+        allowed_phone_ids = _get_accessible_phone_request_ids(cursor, requested_phone_ids, pending_only=True)
+
+        if len(allowed_punch_ids) != len(requested_punch_ids):
+            return jsonify({'code': 403, 'msg': '存在不属于当前管理范围的打卡记录'}), 403
+
+        if len(allowed_phone_ids) != len(requested_phone_ids):
+            return jsonify({'code': 403, 'msg': '存在不属于当前管理范围的手机号申请'}), 403
+
+        if allowed_punch_ids:
+            placeholders = ','.join(['%s'] * len(allowed_punch_ids))
             cursor.execute(
                 f'''
                 UPDATE punch_records
                 SET approved = -1, is_urge = 0, approved_by = %s, approved_at = NOW()
                 WHERE id IN ({placeholders}) AND approved = 0
                 ''',
-                (approver_id, *tuple(punch_ids))
+                (approver_id, *tuple(allowed_punch_ids))
             )
             updated += cursor.rowcount
 
-        if phone_ids:
-            placeholders = ','.join(['%s'] * len(phone_ids))
+        if allowed_phone_ids:
+            placeholders = ','.join(['%s'] * len(allowed_phone_ids))
             cursor.execute(
                 f'''
                 UPDATE phone_change_requests
                 SET approved = -1, is_urge = 0
                 WHERE id IN ({placeholders}) AND approved = 0
                 ''',
-                tuple(phone_ids)
+                tuple(allowed_phone_ids)
             )
             updated += cursor.rowcount
         conn.commit()
@@ -1925,12 +2082,19 @@ def admin_reject_punch_records():
 def delete_record(record_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM punch_records WHERE id = %s', (record_id,))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        accessible_ids = _get_accessible_punch_record_ids(cursor, [record_id], pending_only=False, member_only=True)
+        if not accessible_ids:
+            return jsonify({'code': 403, 'msg': '无权限删除该记录'}), 403
 
-    return jsonify({'code': 200, 'msg': '删除成功'})
+        cursor.execute('DELETE FROM punch_records WHERE id = %s', (record_id,))
+        conn.commit()
+        if cursor.rowcount <= 0:
+            return jsonify({'code': 404, 'msg': '记录不存在'}), 404
+        return jsonify({'code': 200, 'msg': '删除成功'})
+    finally:
+        cursor.close()
+        conn.close()
 
 # 6. 申请管理员接口
 @app.route('/admin/apply', methods=['POST'])
