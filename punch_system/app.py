@@ -2599,6 +2599,59 @@ def get_admin_messages():
                     'can_urge': False,
                     'target_view': 'delegation'
                 })
+
+            cursor.execute(
+                '''
+                SELECT
+                    g.id,
+                    g.user_id,
+                    u.username,
+                    u.nickname,
+                    u.department,
+                    g.duration_hours,
+                    g.starts_at,
+                    g.expires_at,
+                    g.revoked_at,
+                    g.created_at,
+                    CASE
+                        WHEN g.revoked_at IS NOT NULL THEN 'revoked'
+                        WHEN g.expires_at <= NOW() THEN 'expired'
+                        WHEN g.starts_at <= NOW() AND g.expires_at > NOW() THEN 'active'
+                        ELSE 'scheduled'
+                    END AS status
+                FROM temporary_super_admin_grants g
+                JOIN users u ON u.id = g.user_id
+                WHERE g.granted_by = %s
+                ORDER BY g.created_at DESC, g.id DESC
+                LIMIT 30
+                ''',
+                (current_user_id,)
+            )
+            for row in cursor.fetchall() or []:
+                status = row.get('status') or 'scheduled'
+                if status == 'active':
+                    detail = f"已向 {row.get('username') or '该部长'} 放权至 {row.get('expires_at')}"
+                elif status == 'scheduled':
+                    detail = f"将于 {row.get('starts_at')} 生效，持续 {row.get('duration_hours') or 0} 小时"
+                elif status == 'revoked':
+                    detail = f"已收回 {row.get('username') or '该部长'} 的放权"
+                else:
+                    detail = f"{row.get('username') or '该部长'} 的放权已到期"
+
+                items.append({
+                    'id': f"grant:{row.get('id')}",
+                    'raw_id': row.get('id'),
+                    'item_type': 'delegation_grant',
+                    'title': f"{row.get('nickname') or row.get('username') or '部长'} 的放权记录",
+                    'subtitle': row.get('department') or '未设置部门',
+                    'detail': detail,
+                    'status': status,
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('revoked_at') or row.get('expires_at') or row.get('created_at'),
+                    'can_open': True,
+                    'can_urge': False,
+                    'target_view': 'delegation'
+                })
         else:
             cursor.execute(
                 '''

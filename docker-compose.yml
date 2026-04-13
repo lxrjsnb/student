@@ -1,6 +1,6 @@
 services:
   backend:
-    image: punch_system:v0.1
+    image: punch_system:v0.2
     container_name: punch-system-backend
     restart: unless-stopped
     env_file:
@@ -19,7 +19,7 @@ services:
       - punch-net
 
   frontend:
-    image: punch_system_veu:v0.1
+    image: punch_system_vue:v0.2
     container_name: punch-system-frontend
     restart: unless-stopped
     depends_on:

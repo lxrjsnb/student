@@ -93,6 +93,29 @@
     <section v-if="isBaseSuperAdmin" class="panel">
       <div class="panelHead">
         <div>
+          <p class="panelKicker">Granted</p>
+          <h3 class="panelTitle">当前放权</h3>
+        </div>
+      </div>
+
+      <div v-if="activeDelegations.length" class="grantList">
+        <article v-for="item in activeDelegations" :key="`grant-${item.id}`" class="grantItem">
+          <div class="grantMain">
+            <p class="grantName">{{ item.nickname || item.username }}</p>
+            <p class="grantMeta">
+              {{ item.department || '未设置部门' }}
+              · {{ formatDateTime(item.starts_at) }} 至 {{ formatDateTime(item.expires_at) }}
+            </p>
+          </div>
+          <button class="revokeBtn" type="button" :disabled="processingId === item.id" @click="revoke(item.id)">收回</button>
+        </article>
+      </div>
+      <div v-else class="emptyText">暂无生效中的放权</div>
+    </section>
+
+    <section v-if="isBaseSuperAdmin" class="panel">
+      <div class="panelHead">
+        <div>
           <p class="panelKicker">Requests</p>
           <h3 class="panelTitle">放权申请</h3>
         </div>
@@ -143,7 +166,25 @@
           </div>
 
           <div v-if="isBaseSuperAdmin">
-            <div v-if="applicationRecords.length" class="requestList">
+            <div v-if="delegationRecords.length" class="grantList">
+              <article v-for="item in delegationRecords" :key="`delegation-${item.id}`" class="grantItem">
+                <div class="grantMain">
+                  <p class="grantName">{{ item.nickname || item.username }}</p>
+                  <p class="grantMeta">
+                    {{ item.department || '未设置部门' }}
+                    · {{ formatDateTime(item.starts_at) }} 至 {{ formatDateTime(item.expires_at) }}
+                  </p>
+                  <p class="grantMeta">放权人：{{ item.granted_by_username || '-' }}</p>
+                </div>
+                <div class="requestActions">
+                  <span class="statusBadge" :class="`statusBadge--${item.status}`">{{ delegationStatusText(item.status) }}</span>
+                  <button v-if="item.status === 'active'" class="revokeBtn" type="button" :disabled="processingId === item.id" @click="revoke(item.id)">收回</button>
+                </div>
+              </article>
+            </div>
+            <div v-else class="emptyText">暂无放权记录</div>
+
+            <div v-if="applicationRecords.length" class="requestList recordsSection">
               <article v-for="item in applicationRecords" :key="`record-${item.id}`" class="requestCard">
                 <div class="requestTop">
                   <div>
@@ -214,6 +255,7 @@ const selectedAdminId = ref('')
 const durationHours = ref('24')
 const grantableAdmins = ref([])
 const activeDelegations = ref([])
+const delegationRecords = ref([])
 const pendingApplications = ref([])
 const applicationRecords = ref([])
 const myApplications = ref([])
@@ -259,6 +301,14 @@ function statusText(status) {
   return '待审批'
 }
 
+function delegationStatusText(status) {
+  if (status === 'active') return '生效中'
+  if (status === 'expired') return '已到期'
+  if (status === 'revoked') return '已收回'
+  if (status === 'scheduled') return '待生效'
+  return status || '-'
+}
+
 async function loadData() {
   if (!props.token) return
   loading.value = true
@@ -271,7 +321,8 @@ async function loadData() {
       ])
 
       grantableAdmins.value = usersRes.code === 200 ? (usersRes.data || []).filter((item) => item.role === 'admin') : []
-      activeDelegations.value = grantsRes.code === 200 ? (grantsRes.data || []).filter((item) => item.status === 'active') : []
+      delegationRecords.value = grantsRes.code === 200 ? (grantsRes.data || []) : []
+      activeDelegations.value = delegationRecords.value.filter((item) => item.status === 'active')
       applicationRecords.value = applicationsRes.code === 200 ? (applicationsRes.data || []) : []
       pendingApplications.value = applicationRecords.value.filter((item) => item.status === 'pending')
       pendingApplications.value.forEach((item) => {
