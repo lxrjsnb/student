@@ -65,6 +65,80 @@ def ensure_users_table(cursor):
     )
     print("✓ users 表已存在/已创建")
 
+
+def assign_reserved_student_nos(cursor):
+    def _assign_by_query(label, reserved_no, sql, params=()):
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        if not rows:
+            print(f"✓ 未找到需要设置学号 {reserved_no} 的{label}账号")
+            return False
+        if len(rows) > 1:
+            print(f"⚠ {label}账号匹配到多条记录，跳过自动设置学号 {reserved_no}")
+            return False
+
+        user = rows[0]
+        current = str(user.get('student_no') or '').strip()
+        if current == reserved_no:
+            print(f"✓ {label}账号学号已是 {reserved_no}")
+            return True
+        if current:
+            print(f"⚠ {label}账号已存在学号 {current}，跳过自动改为 {reserved_no}")
+            return True
+
+        cursor.execute('SELECT id, username FROM users WHERE student_no = %s LIMIT 1', (reserved_no,))
+        owner = cursor.fetchone()
+        if owner and int(owner.get('id') or 0) != int(user.get('id') or 0):
+            print(
+                f"⚠ 学号 {reserved_no} 已被账号 {owner.get('username') or owner.get('id')} 占用，"
+                f"跳过为{label}账号自动设置"
+            )
+            return False
+
+        cursor.execute('UPDATE users SET student_no = %s WHERE id = %s', (reserved_no, user['id']))
+        print(f"✓ 已为{label}账号 {user.get('username') or user['id']} 设置学号 {reserved_no}")
+        return True
+
+    _assign_by_query(
+        'admin',
+        '1',
+        '''
+        SELECT id, username, student_no
+        FROM users
+        WHERE username = %s
+        LIMIT 2
+        ''',
+        ('admin',)
+    )
+
+    assigned_super = _assign_by_query(
+        'super_admin',
+        '2',
+        '''
+        SELECT id, username, student_no
+        FROM users
+        WHERE username IN (%s, %s)
+        ORDER BY CASE WHEN username = %s THEN 0 ELSE 1 END, id ASC
+        LIMIT 2
+        ''',
+        ('superadmin', 'super_admin', 'superadmin')
+    )
+    if assigned_super:
+        return
+
+    _assign_by_query(
+        'super_admin',
+        '2',
+        '''
+        SELECT id, username, student_no
+        FROM users
+        WHERE role = %s
+        ORDER BY id ASC
+        LIMIT 2
+        ''',
+        ('super_admin',)
+    )
+
 def setup_database():
     try:
         ensure_database_exists()
@@ -363,6 +437,7 @@ def setup_database():
 
         try:
             cursor.execute("UPDATE users SET student_no = NULL WHERE student_no IS NOT NULL AND TRIM(student_no) = ''")
+            assign_reserved_student_nos(cursor)
             cursor.execute('CREATE UNIQUE INDEX uniq_users_student_no ON users (student_no)')
             print("✓ users 表添加 student_no 唯一索引成功")
         except Exception as e:
