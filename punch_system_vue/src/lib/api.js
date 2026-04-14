@@ -139,6 +139,25 @@ export async function getAllUsers({ token, role }) {
   return res.data
 }
 
+export async function getDeveloperUsers({ token, keyword, role } = {}) {
+  const params = {}
+  if (keyword) params.q = keyword
+  if (role) params.role = role
+
+  const res = await adminApi.get('/super-admin/developer/users', {
+    headers: { Authorization: `Bearer ${token}` },
+    params
+  })
+  return res.data
+}
+
+export async function updateDeveloperUser({ token, userId, payload } = {}) {
+  const res = await adminApi.put(`/super-admin/developer/users/${userId}`, payload, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  return res.data
+}
+
 export async function getAllRecords({ token, role }) {
   const res = await adminApi.get('/admin/records', {
     headers: { Authorization: `Bearer ${token}` }

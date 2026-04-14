@@ -658,6 +658,24 @@ def _validate_password_policy(user_row, password_plain):
 
     return None
 
+def _format_datetime_text(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d %H:%M:%S')
+    return str(value)
+
+def _serialize_developer_user_row(row):
+    if not row:
+        return None
+
+    user = dict(row)
+    for key in ('last_login_at', 'last_logout_at', 'created_at'):
+        user[key] = _format_datetime_text(user.get(key))
+    user['is_online'] = bool(user.get('is_online'))
+    user['is_admin'] = bool(user.get('is_admin'))
+    return user
+
 def user_session_optional(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -1699,6 +1717,225 @@ def get_all_users():
         )
         users = cursor.fetchall() or []
         return jsonify({'code': 200, 'data': users})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/developer/users', methods=['GET'])
+@super_admin_required
+def get_developer_users():
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可访问该页面'}), 403
+
+    keyword = str(request.args.get('q') or '').strip()
+    role = str(request.args.get('role') or '').strip()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        try:
+            cursor.execute('UPDATE users SET is_online = 0')
+            cursor.execute(
+                '''
+                UPDATE users u
+                JOIN (
+                    SELECT DISTINCT user_id
+                    FROM user_sessions
+                    WHERE expires_at >= NOW()
+                ) s ON s.user_id = u.id
+                SET u.is_online = 1
+                '''
+            )
+            conn.commit()
+        except Exception as e:
+            logger.error(f"同步 users.is_online 失败（开发者界面）: {e}")
+
+        clauses = []
+        params = []
+        if keyword:
+            like = f'%{keyword}%'
+            clauses.append(
+                '''
+                (
+                    CAST(id AS CHAR) LIKE %s OR
+                    username LIKE %s OR
+                    COALESCE(nickname, '') LIKE %s OR
+                    COALESCE(student_no, '') LIKE %s OR
+                    COALESCE(class_name, '') LIKE %s OR
+                    COALESCE(department, '') LIKE %s OR
+                    COALESCE(phone, '') LIKE %s
+                )
+                '''
+            )
+            params.extend([like, like, like, like, like, like, like])
+        if role:
+            clauses.append('role = %s')
+            params.append(role)
+
+        where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ''
+        cursor.execute(
+            f'''
+            SELECT
+                id,
+                nickname,
+                username,
+                student_no,
+                class_name,
+                department,
+                phone,
+                role,
+                is_online,
+                is_admin,
+                last_login_at,
+                last_logout_at,
+                created_at
+            FROM users
+            {where_sql}
+            ORDER BY id ASC
+            LIMIT 500
+            ''',
+            tuple(params)
+        )
+        users = [_serialize_developer_user_row(row) for row in (cursor.fetchall() or [])]
+        return jsonify({'code': 200, 'data': users})
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/super-admin/developer/users/<int:user_id>', methods=['PUT'])
+@super_admin_required
+def update_developer_user(user_id):
+    if getattr(g, 'base_user_role', None) != 'super_admin':
+        return jsonify({'code': 403, 'msg': '仅主席可执行该操作'}), 403
+
+    data = request.json or {}
+    nickname = str(data.get('nickname') or '').strip()
+    student_no = str(data.get('student_no') or '').strip()
+    class_name = str(data.get('class_name') or '').strip()
+    department = str(data.get('department') or '').strip()
+    phone = str(data.get('phone') or '').strip()
+    role = str(data.get('role') or '').strip() or 'user'
+    password = str(data.get('password') or '').strip()
+
+    limits = {
+        '姓名': (nickname, 50),
+        '学号': (student_no, 32),
+        '班级': (class_name, 64),
+        '部门': (department, 64),
+        '电话号': (phone, 32),
+    }
+    for label, (value, max_length) in limits.items():
+        if len(value) > max_length:
+            return jsonify({'code': 400, 'msg': f'{label}长度不能超过 {max_length} 个字符'}), 400
+
+    if role not in {'user', 'admin', 'super_admin'}:
+        return jsonify({'code': 400, 'msg': '角色无效'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            '''
+            SELECT id, username, nickname, student_no, class_name, department, phone, role
+            FROM users
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (user_id,)
+        )
+        user = cursor.fetchone()
+        if not user:
+            return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+
+        if password:
+            password_error = _validate_password_policy(
+                {
+                    'username': user.get('username'),
+                    'nickname': nickname or user.get('nickname'),
+                    'student_no': student_no or None,
+                    'phone': phone or None,
+                    'class_name': class_name or None,
+                    'department': department or None,
+                },
+                password
+            )
+            if password_error:
+                return jsonify({'code': 400, 'msg': password_error}), 400
+
+        update_sql = [
+            'nickname = %s',
+            'student_no = %s',
+            'class_name = %s',
+            'department = %s',
+            'phone = %s',
+            'role = %s',
+            'is_admin = %s'
+        ]
+        params = [
+            nickname,
+            student_no or None,
+            class_name,
+            department,
+            phone,
+            role,
+            1 if role in {'admin', 'super_admin'} else 0,
+        ]
+        if password:
+            update_sql.append('password = %s')
+            params.append(generate_password_hash(password))
+        params.append(user_id)
+
+        cursor.execute(
+            f'''
+            UPDATE users
+            SET {', '.join(update_sql)}
+            WHERE id = %s
+            ''',
+            tuple(params)
+        )
+
+        if role != 'admin':
+            try:
+                cursor.execute(
+                    '''
+                    UPDATE temporary_super_admin_grants
+                    SET revoked_at = NOW(), expires_at = NOW()
+                    WHERE user_id = %s AND revoked_at IS NULL AND expires_at > NOW()
+                    ''',
+                    (user_id,)
+                )
+            except Exception as e:
+                logger.warning(f'收回临时主席权限失败 user_id={user_id}: {e}')
+
+        conn.commit()
+
+        cursor.execute(
+            '''
+            SELECT
+                id,
+                nickname,
+                username,
+                student_no,
+                class_name,
+                department,
+                phone,
+                role,
+                is_online,
+                is_admin,
+                last_login_at,
+                last_logout_at,
+                created_at
+            FROM users
+            WHERE id = %s
+            LIMIT 1
+            ''',
+            (user_id,)
+        )
+        updated_user = _serialize_developer_user_row(cursor.fetchone())
+        return jsonify({'code': 200, 'msg': '用户信息已更新', 'data': updated_user})
+    except pymysql.err.IntegrityError:
+        conn.rollback()
+        return jsonify({'code': 400, 'msg': '学号已存在，请检查后重试'}), 400
     finally:
         cursor.close()
         conn.close()

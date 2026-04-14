@@ -12,6 +12,19 @@ _POOL = None
 _POOL_LOCK = threading.Lock()
 
 
+def _raise_clear_auth_dependency_error(exc):
+    message = str(exc)
+    if 'cryptography' in message and (
+        'caching_sha2_password' in message or 'sha256_password' in message
+    ):
+        raise RuntimeError(
+            "数据库账号使用了 MySQL 的 sha256/caching_sha2 认证，但当前 Python 环境未安装 "
+            "`cryptography`。请先执行 `conda run -n check pip install cryptography` "
+            "或重新安装 `requirements.txt` 中的依赖后再启动服务。"
+        ) from exc
+    raise exc
+
+
 def load_env_file():
     global _ENV_LOADED
     if _ENV_LOADED:
@@ -109,7 +122,10 @@ class SimpleConnectionPool:
             self._created_connections += 1
 
     def _create_raw_connection(self):
-        return pymysql.connect(**self._config)
+        try:
+            return pymysql.connect(**self._config)
+        except RuntimeError as exc:
+            _raise_clear_auth_dependency_error(exc)
 
     def _discard_connection(self, conn):
         try:
@@ -215,4 +231,7 @@ def get_db_connection():
 def get_server_connection():
     config = get_db_config().copy()
     config.pop('database', None)
-    return pymysql.connect(**config)
+    try:
+        return pymysql.connect(**config)
+    except RuntimeError as exc:
+        _raise_clear_auth_dependency_error(exc)

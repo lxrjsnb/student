@@ -51,6 +51,14 @@
           <span class="actionArrow" aria-hidden="true">›</span>
         </button>
 
+        <button v-if="canOpenDeveloperAccess" class="actionRow" type="button" @click="$emit('openDeveloperAccess')">
+          <div class="actionMain">
+            <span class="actionTitle">开发者权限</span>
+            <span class="actionDesc">进入表格页直接编辑全部用户信息</span>
+          </div>
+          <span class="actionArrow" aria-hidden="true">›</span>
+        </button>
+
         <button class="actionRow actionRow--danger" type="button" @click="$emit('logout')">
           <div class="actionMain">
             <span class="actionTitle">退出登录</span>
@@ -71,7 +79,7 @@ const props = defineProps({
   delegationAlert: { type: Boolean, default: false }
 })
 
-defineEmits(['logout', 'openSettings', 'openDelegation'])
+defineEmits(['logout', 'openSettings', 'openDelegation', 'openDeveloperAccess'])
 
 const displayInitial = computed(() => {
   const value = props.user?.nickname || props.user?.username || '?'
@@ -90,6 +98,7 @@ const canDelegate = computed(() => {
   if (props.user?.baseRole === 'admin') return !props.user?.isTemporarySuperAdmin
   return false
 })
+const canOpenDeveloperAccess = computed(() => props.user?.baseRole === 'super_admin')
 const delegationLabel = computed(() => (props.user?.baseRole === 'super_admin' ? '放权' : '权限申请'))
 const delegationDesc = computed(() => (props.user?.baseRole === 'super_admin' ? '进入独立页面管理临时主席权限' : '填写理由后提交给主席审批'))
 const phoneText = computed(() => props.user?.phone || '-')

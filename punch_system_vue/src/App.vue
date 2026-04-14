@@ -84,6 +84,15 @@
         @logout="adminLogout"
         @openSettings="goSettings"
         @openDelegation="goSuperAdminDelegation"
+        @openDeveloperAccess="goDeveloperAccess"
+      />
+
+      <DeveloperAccessView
+        v-else-if="view === 'developerAccess' && currentUser"
+        :token="adminAuthToken"
+        :current-user-id="currentUser?.id || 0"
+        @back="goAdminProfile"
+        @updated="handleDeveloperUserUpdated"
       />
 
       <ActivityDetail v-else-if="view === 'activityDetail' && currentUser" :activity="selectedActivity" @back="goActivities" />
@@ -190,6 +199,7 @@ import AdminApprove from './components/AdminApprove.vue'
 import AdminPunchApproval from './components/AdminPunchApproval.vue'
 import AdminActivityUpload from './components/AdminActivityUpload.vue'
 import AdminProfile from './components/AdminProfile.vue'
+import DeveloperAccessView from './components/DeveloperAccessView.vue'
 import SuperAdminDelegationView from './components/SuperAdminDelegationView.vue'
 import SuperAdminStatusView from './components/SuperAdminStatusView.vue'
 import PunchHome from './components/PunchHome.vue'
@@ -521,6 +531,28 @@ function goAdminActivityUpload() {
 
 function goAdminProfile() {
   view.value = 'adminProfile'
+}
+
+function goDeveloperAccess() {
+  if (currentUser.value?.baseRole !== 'super_admin') return
+  view.value = 'developerAccess'
+}
+
+function handleDeveloperUserUpdated(user) {
+  if (!user || Number(user.id) !== Number(currentUser.value?.id || 0)) return
+
+  applyUserPatch({
+    nickname: user.nickname || currentUser.value?.nickname || currentUser.value?.username || '',
+    studentNo: user.student_no || '',
+    department: user.department || '',
+    phone: user.phone || '',
+    role: user.role || currentUser.value?.role || 'user',
+    baseRole: user.role || currentUser.value?.baseRole || 'user'
+  })
+
+  if (user.role !== 'super_admin') {
+    view.value = 'adminProfile'
+  }
 }
 
 function navigateAdmin(target) {
