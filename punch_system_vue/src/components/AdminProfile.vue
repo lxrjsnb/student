@@ -67,6 +67,11 @@
           <span class="actionState actionState--danger">退出</span>
         </button>
       </div>
+
+      <p class="developerNotice">
+        开发者声明：本项目只限于自管会内部使用，切勿将账号密码泄漏
+        <span class="developerNotice__author">——蔡昊东</span>
+      </p>
     </section>
   </section>
 </template>
@@ -302,6 +307,21 @@ const studentNoText = computed(() => props.user?.studentNo || '-')
 
 .actionState--danger {
   color: #9a2f27;
+}
+
+.developerNotice {
+  margin: 18px 4px 0;
+  color: rgba(24, 33, 47, 0.62);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.developerNotice__author {
+  display: inline-block;
+  margin-left: 6px;
+  color: rgba(24, 59, 77, 0.84);
+  font-weight: 700;
 }
 
 @media (max-width: 768px) {

@@ -26,7 +26,7 @@
 
       <SuperAdminStatusView
         v-else-if="view === 'superAdminStatus' && currentUser"
-        :token="adminToken"
+        :token="adminAuthToken"
         :role="currentUser?.role || 'user'"
       />
 
@@ -40,7 +40,7 @@
 
       <AdminPanel
         v-if="view === 'adminPanel'"
-        :token="adminToken"
+        :token="adminAuthToken"
         :role="currentUser?.role || 'user'"
         @logout="adminLogout"
         @goOverview="adminGoOverview"
@@ -57,7 +57,7 @@
 
       <AdminApprove
         v-else-if="view === 'adminApprove'"
-        :token="adminToken"
+        :token="adminAuthToken"
         :role="currentUser?.role || 'user'"
       />
 
@@ -969,6 +969,11 @@ onMounted(() => {
       .catch(() => {})
   }, 30000)
   
+  if (!adminToken.value && ['admin', 'super_admin'].includes(currentUser.value?.role || '') && currentUser.value?.sessionToken) {
+    adminToken.value = currentUser.value.sessionToken
+    localStorage.setItem(STORAGE_KEY_ADMIN_TOKEN, currentUser.value.sessionToken)
+  }
+
   if (currentUser.value?.id) refreshRecords()
   if (currentUser.value?.sessionToken) loadActivities()
   refreshDelegationAlert().catch(() => {})
