@@ -8,7 +8,7 @@ import threading
 import time
 import json
 import ast
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 
@@ -24,6 +24,13 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization", "X-User-Role"]}})
+
+BEIJING_TZ = timezone(timedelta(hours=8), name='Asia/Shanghai')
+
+
+def beijing_now():
+    # Keep application timestamps aligned with China Standard Time even if the host runs in UTC.
+    return datetime.now(BEIJING_TZ).replace(tzinfo=None)
 
 def _get_log_level():
     level = (os.getenv('APP_LOG_LEVEL') or 'INFO').strip().upper()
@@ -510,7 +517,7 @@ def _get_user_session(token):
             return None
 
         expires_at = session.get('expires_at')
-        if expires_at and expires_at < datetime.now():
+        if expires_at and expires_at < beijing_now():
             cursor.execute('DELETE FROM user_sessions WHERE token = %s', (token,))
             conn.commit()
             try:
@@ -524,11 +531,11 @@ def _get_user_session(token):
             cursor.execute('SELECT last_login_at FROM users WHERE id = %s LIMIT 1', (session.get('user_id'),))
             user_row = cursor.fetchone() or {}
             last_login_at = user_row.get('last_login_at')
-            if last_login_at and last_login_at < (datetime.now() - timedelta(days=RELOGIN_AFTER_DAYS)):
+            if last_login_at and last_login_at < (beijing_now() - timedelta(days=RELOGIN_AFTER_DAYS)):
                 cursor.execute('DELETE FROM user_sessions WHERE user_id = %s', (session.get('user_id'),))
                 cursor.execute(
                     'UPDATE users SET is_online = 0, last_logout_at = %s WHERE id = %s',
-                    (datetime.now(), session.get('user_id'))
+                    (beijing_now(), session.get('user_id'))
                 )
                 conn.commit()
                 raise ReLoginRequired()
@@ -550,7 +557,7 @@ def _create_user_session(user_id):
     _ensure_schema_once()
 
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.now() + timedelta(days=SESSION_TTL_DAYS)
+    expires_at = beijing_now() + timedelta(days=SESSION_TTL_DAYS)
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -574,7 +581,7 @@ def _mark_user_online(user_id):
     try:
         cursor.execute(
             'UPDATE users SET is_online = 1, last_login_at = %s WHERE id = %s',
-            (datetime.now(), user_id)
+            (beijing_now(), user_id)
         )
         conn.commit()
     finally:
@@ -593,14 +600,14 @@ def _mark_user_offline_if_no_active_sessions(user_id):
             FROM user_sessions
             WHERE user_id = %s AND expires_at >= %s
             ''',
-            (user_id, datetime.now())
+            (user_id, beijing_now())
         )
         row = cursor.fetchone() or {}
         if int(row.get('cnt') or 0) > 0:
             return
         cursor.execute(
             'UPDATE users SET is_online = 0, last_logout_at = %s WHERE id = %s',
-            (datetime.now(), user_id)
+            (beijing_now(), user_id)
         )
         conn.commit()
     finally:
@@ -1038,7 +1045,7 @@ def punch():
     
     cursor.execute('SELECT NOW() AS db_now')
     db_now_row = cursor.fetchone() or {}
-    current_time = db_now_row.get('db_now') or datetime.now()
+    current_time = db_now_row.get('db_now') or beijing_now()
 
     # 用数据库时间计算限流，避免应用容器和 MySQL 时区不一致导致误判
     cursor.execute(
@@ -1499,7 +1506,7 @@ def create_activity():
     status = 'approved' if role == 'super_admin' else 'pending'
     is_active = 1 if status == 'approved' else 0
     reviewed_by = created_by if role == 'super_admin' else None
-    reviewed_at = datetime.now() if role == 'super_admin' else None
+    reviewed_at = beijing_now() if role == 'super_admin' else None
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -2976,9 +2983,9 @@ def get_admin_messages():
                 status = 'scheduled'
                 if row.get('revoked_at') is not None:
                     status = 'revoked'
-                elif row.get('expires_at') and row.get('expires_at') <= datetime.now():
+                elif row.get('expires_at') and row.get('expires_at') <= beijing_now():
                     status = 'expired'
-                elif row.get('starts_at') and row.get('starts_at') <= datetime.now():
+                elif row.get('starts_at') and row.get('starts_at') <= beijing_now():
                     status = 'approved'
                 items.append({
                     'id': f"grant:{row.get('id')}",
@@ -3150,7 +3157,7 @@ def revoke_super_admin_delegation(delegation_id):
             return jsonify({'code': 404, 'msg': '放权记录不存在'}), 404
         if delegation.get('revoked_at') is not None:
             return jsonify({'code': 400, 'msg': '该放权已撤销'}), 400
-        if delegation.get('expires_at') and delegation.get('expires_at') <= datetime.now():
+        if delegation.get('expires_at') and delegation.get('expires_at') <= beijing_now():
             return jsonify({'code': 400, 'msg': '该放权已到期'}), 400
 
         cursor.execute(
@@ -3324,7 +3331,7 @@ def update_user_password(user_id):
 # 测试路由
 @app.route('/test', methods=['GET'])
 def test():
-    return jsonify({'code': 200, 'msg': '后端服务正常运行', 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+    return jsonify({'code': 200, 'msg': '后端服务正常运行', 'timestamp': beijing_now().strftime('%Y-%m-%d %H:%M:%S')})
 
 # 启动后端服务
 if __name__ == '__main__':

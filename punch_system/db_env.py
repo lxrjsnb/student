@@ -78,6 +78,7 @@ def get_db_config():
         'password': os.getenv('DB_PASSWORD', ''),
         'database': get_db_name(),
         'charset': os.getenv('DB_CHARSET', 'utf8mb4'),
+        'init_command': "SET time_zone = '+08:00'",
         'cursorclass': pymysql.cursors.DictCursor,
     }
 
